@@ -318,7 +318,7 @@ Private Sub BtnGenSheet_Click()
         .Global = False
         .MultiLine = False
         .IgnoreCase = True
-        .Pattern = "^\(([0-9]+)\)\s+\[([SEMCT])\](.+?) - (.+) -- ([0-9.]+)\(([0-9]+)\)\.[0-9a-z]+$"
+        .Pattern = "^\(([0-9]+)\)\s+\[([SEMCT])\](.+?) - (.+) -- ([0-9.]+)\(([0-9.]+)\)\.[0-9a-z]+$"
     End With
     
     ' Scan the work folder for properly configured filenames
@@ -363,9 +363,11 @@ Private Sub BtnGenSheet_Click()
     Set genBk = Workbooks.Add
     
     ' Strip down to a single worksheet if needed
+    Application.DisplayAlerts = False
     Do Until genBk.Worksheets.Count < 2
         genBk.Worksheets(genBk.Worksheets.Count).Delete
     Loop
+    Application.DisplayAlerts = True
     
     ' Bind the sheet
     Set genSht = genBk.Worksheets(1)
@@ -440,8 +442,8 @@ Private Sub BtnGenSheet_Click()
                 .Value = CDbl(mch.SubMatches(smchCost))
             End With
             With workCel.Offset(0, 4)
-                .NumberFormat = "0"
-                .Value = CLng(mch.SubMatches(smchQty))
+                .NumberFormat = "@"
+                .Value = CDbl(mch.SubMatches(smchQty))
             End With
             With workCel.Offset(0, 5)
                 .NumberFormat = costFmt

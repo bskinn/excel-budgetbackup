@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+ * Fix regex for filename parsing regex to allow decimal values
+   in the 'quantity' field
+ * Fix 'quantity' value conversion during sheet generation to allow
+   decimal values
+ * Disable Excel's complaining during sheet generation if the default
+   workbook has more than one sheet, and the extras are deleted
+
 ## [1.0.0] - 2017-07-21
 
 Existing production version released as open source.

@@ -18,7 +18,7 @@ See the
 [project wiki](https://github.com/bskinn/excel-budgetbackup/wiki)
 *(pending)* for installation and usage instructions.
 
-Copyright (c) Brian Skinn 2017
+Copyright (c) Brian Skinn 2017-2018
 
 License: The MIT License  
 See [`LICENSE.txt`](https://github.com/bskinn/excel-budgetbackup/blob/master/LICENSE.txt)
