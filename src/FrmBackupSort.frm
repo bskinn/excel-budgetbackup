@@ -35,16 +35,21 @@ Option Explicit
 Dim fs As Scripting.FileSystemObject, fld As Scripting.Folder, fl As Scripting.File
 Dim mch As VBScript_RegExp_55.Match, wsf As WorksheetFunction
 Dim rxFnameFmt As New VBScript_RegExp_55.RegExp
-Dim populated As Boolean, wasPacked As Boolean
+
+'Dim populated As Boolean
+Dim wasPacked As Boolean
 Dim inclIdx As Long, exclIdx As Long
 Dim inclView As Long, exclView As Long
 Dim cancelLoad As Boolean
+
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
 Const NUM_FORMAT As String = "00"
 Const CANCEL_RETURN As String = "!!CANCELED!!"
 
 Private Sub popLists(Optional internalCall As Boolean = False)
+    ' Clear and repopulate the included/excluded items LBxes
+    '
     ' internalCall should be False for all calls to popLists
     ' outside of the popLists function itself.
     ' popLists uses internalCall = True for repeat internal
@@ -53,7 +58,9 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     
     Dim ctrl As Control
 
-    ' If the first call, disable everything
+    ' If an external call, disable everything
+    ' THIS LIKELY WILL BE OBSOLETED BY A UNIFIED
+    ' ENABLE/DISABLE FUNCTIONALITY
     If Not internalCall Then
         For Each ctrl In FrmBackupSort.Controls
             If TypeOf ctrl Is CommandButton Or _
@@ -63,7 +70,8 @@ Private Sub popLists(Optional internalCall As Boolean = False)
         Next ctrl
     End If
 
-    ' Store current selections if not a re-call from the list packing
+    ' Store current selection/view indices if this is an external call,
+    ' for restore after list repopulation.
     If Not wasPacked Then
         exclIdx = LBxExcl.ListIndex
         inclIdx = LBxIncl.ListIndex
@@ -72,20 +80,27 @@ Private Sub popLists(Optional internalCall As Boolean = False)
         inclView = LBxIncl.TopIndex
     End If
     
-    ' Clear list contents
+    ' Clear list contents in prep for repopulating
     LBxExcl.Clear
     LBxIncl.Clear
     
-    If fld Is Nothing Then
-        ' Empty population indication
-        LBxExcl.AddItem "<empty>"
-        LBxIncl.AddItem "<empty>"
-        populated = False
+    If fld Is Nothing Then  ' there's nothing to populate
+        ' So, set Empty
+        LBxExcl.AddItem EMPTY_LIST
+        LBxIncl.AddItem EMPTY_LIST
+        'populated = False
+        
+        ' ... and by definition this can't be an internal call,
+        ' so *do* go to the final exit code.
         GoTo Final_Exit
     End If
     
+    ' Pad all sequence numbers in filenames
     padNums
     
+    ' Iterate through the files in the folder and sort to
+    ' include/exclude lists as relevant.
+    ' Ignores any files with names not matching rxFnameFmt
     For Each fl In fld.Files
         If rxFnameFmt.Test(fl.Name) Then
             Set mch = rxFnameFmt.Execute(fl.Name)(0)
@@ -97,11 +112,15 @@ Private Sub popLists(Optional internalCall As Boolean = False)
         End If
     Next fl
     
+    ' Set flag to check if any number packing was done;
+    ' do the packing, and then re-call this routine
+    ' as an internal call to re-update the listboxes
     wasPacked = False
     packNums
     If wasPacked Then Call popLists(internalCall:=True)
     
-    ' Only run the finishing stuff if the initial call
+    ' Only run the finalizing code for the outermost, external
+    ' call of the function
     If Not internalCall Then GoTo Final_Exit
     
     ' Exit if this is an internal call
@@ -113,12 +132,16 @@ Final_Exit:
     If LBxIncl.ListCount < 1 Then LBxIncl.AddItem NONE_FOUND
     
     ' Restore selections and views
+    ' The .Min calls avoid index overflows when the size
+    ' of a given list shrinks
     LBxExcl.ListIndex = wsf.Min(exclIdx, LBxExcl.ListCount - 1)
     LBxIncl.ListIndex = wsf.Min(inclIdx, LBxIncl.ListCount - 1)
     LBxExcl.TopIndex = exclView
     LBxIncl.TopIndex = inclView
     
-    ' If the first call, re-enable everything
+    ' Re-enable all the controls
+    ' LIKELY TO BE OBSOLETED IN FAVOR OF A MORE GRANULAR ENABLE/DISABLE
+    ' FUNCTIONALITY
     For Each ctrl In FrmBackupSort.Controls
         If TypeOf ctrl Is CommandButton Or _
                 TypeOf ctrl Is ListBox Then
@@ -129,6 +152,11 @@ Final_Exit:
 End Sub
 
 Private Sub padNums()
+    ' Scan the files in the working folder and reformat any
+    ' numerical values with zero-padding
+    '
+    ' For now, only pads single-digit numbers.
+    
     For Each fl In fld.Files
         If rxFnameFmt.Test(fl.Name) Then
             Set mch = rxFnameFmt.Execute(fl.Name)(0)
@@ -143,6 +171,10 @@ Private Sub padNums()
 End Sub
 
 Private Sub packNums()
+    ' Scan the 'included' listbox and repack all of the
+    ' filename indexing so that there are no gaps, and no
+    ' repeated indices.
+    
     Dim workStr As String, iter As Long
     
     If LBxIncl.ListCount > 0 Then
@@ -161,31 +193,48 @@ Private Sub packNums()
 End Sub
 
 Private Sub BtnAppend_Click()
+    ' Append the selected item from the Exclude list
+    ' to the end of the Include list
+    
+    ' No folder selected, so exit with no action
+    ' TO BE OBSOLETED BY CONTROL ACTIVATION/INACTIVATION
     If fld Is Nothing Then Exit Sub
     
+    ' Excluded list is empty, do nothing
+    ' TO BE OBSOLETED BY CONTROL ACTIVATION/INACTIVATION
     If LBxExcl.List(0, 0) = NONE_FOUND Then Exit Sub
     
+    ' No Excluded list item is selected; do nothing
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
+    ' Retrieve the filename and assign to File object;
+    ' ASSUMES ALREADY VETTED AGAINST rxFnameFmt
     Set mch = rxFnameFmt.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
-    
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
+    
+    ' Rename the file to an 'included' form
     If LBxIncl.List(0, 0) = NONE_FOUND Then
-        ' Start list from nothing
+        ' Start list from nothing; index is one
         fl.Name = "(" & Format(1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     Else
+        ' Assign the index for the end of the 'included' list
         fl.Name = "(" & Format(LBxIncl.ListCount + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     End If
     
+    ' Repopulate both lists
     popLists
     
 End Sub
 
 Private Sub BtnClose_Click()
+    ' Jettison the form entirely
     Unload FrmBackupSort
 End Sub
 
 Private Sub BtnGenSheet_Click()
+    ' Create and populate a budget sheet based on
+    ' the current contents of the 'include' list
+
     Dim genBk As Workbook, genSht As Worksheet
     Dim sht As Worksheet
     Dim workCel As Range, tblCel As Range
@@ -208,10 +257,11 @@ Private Sub BtnGenSheet_Click()
     Const smchQty As Long = 5
     Const costFmt As String = "$#,##0.00"
     
-    ' Drop if not init
+    ' Drop if folder is not selected
     If fld Is Nothing Then Exit Sub
     
-    ' Set up the regex
+    ' Set up the regex for picking apart the filename
+    ' PROBABLY COULD BE RELOCATED TO A GLOBAL?
     With rx
         .Global = False
         .MultiLine = False
@@ -228,6 +278,7 @@ Private Sub BtnGenSheet_Click()
             anyFlsFound = True
             Set mch = rx.Execute(fl.Name)(0)
             
+            ' Increment the relevant category count
             Select Case UCase(mch.SubMatches(smchType))
             Case "S"
                 counts(idxS) = counts(idxS) + 1
@@ -242,6 +293,7 @@ Private Sub BtnGenSheet_Click()
             End Select
         Else
             ' Notify of non-matching item, if not an 'excluded' item
+            ' TO BE RELOCATED ELSEWHERE, PER #23
             If Not UCase(Left(fl.Name, 3)) = "(X)" Then
                 MsgBox "The following item is named in an unrecognized format " & _
                         "and will be skipped:" & vbCrLf & vbCrLf & fl.Name, _
@@ -410,10 +462,11 @@ Private Sub BtnGenSheet_Click()
     End If
     
     
+    ' Change entire UsedRange to left-aligned
     genSht.UsedRange.Columns(genSht.UsedRange.Columns.Count) _
             .HorizontalAlignment = xlLeft
     
-    ' Total field
+    ' 'Grand Total' field
     With tblCel.Offset(-2, 5)
         .Formula = "Total"
         .Font.Bold = True
@@ -436,17 +489,18 @@ Private Sub BtnGenSheet_Click()
 End Sub
 
 Private Sub BtnInsert_Click()
-    
+    ' Insert selected 'excluded' item at cursor of 'included' list
     Dim val As Long, iter As Long, workStr As String
     
+    ' Proofing; exit if invalid state
     If fld Is Nothing Then Exit Sub
     
     If LBxExcl.List(0, 0) = NONE_FOUND Then Exit Sub
     
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
+    ' Just append if nothing selected, or if <none found> is selected
     If LBxIncl.ListIndex < 0 Or LBxIncl.Value = NONE_FOUND Then
-        ' Just append if nothing selected, or if <none found> is selected
         BtnAppend_Click
         Exit Sub
     End If
@@ -472,9 +526,11 @@ Private Sub BtnInsert_Click()
 End Sub
 
 Private Sub BtnMoveDown_Click()
+    ' Move selected item down in the 'included' list
     
     Dim val As Long
     
+    ' Must be something in the 'included' list
     If LBxIncl.List(0, 0) = NONE_FOUND Then Exit Sub
     
     ' Something must be selected
@@ -508,27 +564,39 @@ Private Sub BtnMoveDown_Click()
 End Sub
 
 Private Sub BtnMoveAfter_Click()
+    ' Move selected 'included' item to after a given index
     
     Dim srcIdx As Long, tgtIdx As Long, workStr As String
     
+    ' Must be items in the list
     If LBxIncl.List(0, 0) = NONE_FOUND Then Exit Sub
+    
+    ' Must have at least two items
     If LBxIncl.ListCount < 2 Then Exit Sub
+    
+    ' Something must be selected
     If LBxIncl.ListIndex < 0 Then Exit Sub
-       
+    
+    ' Query for the desired destination
     workStr = ""
-       
     Do
         If Not workStr = "" Then
             Call MsgBox("Please enter a number.", vbOKOnly + vbExclamation, "Warning")
         End If
         workStr = InputBox("Move selected item to a position" & vbLf & "just after item number:" & vbLf & vbLf & _
                     "(Zero moves to top of list)", "Move After...")
-        If workStr = "" Then Exit Sub
+        If workStr = "" Then Exit Sub  ' because user cancelled
     Loop Until IsNumeric(workStr)
     
+    ' Identify relevant indices
+    ' If a too-big or too-small index is provided,
+    ' just move to end or start of list.
     srcIdx = LBxIncl.ListIndex
     tgtIdx = wsf.Max(wsf.Min(CLng(workStr) - 1, LBxIncl.ListCount - 1), -1)
     
+    ' Perform the move. Relies on BtnMoveDown_Click and BtnMoveUp_Click
+    ' keeping the item being moved as the selected item after the move
+    ' is done!
     If srcIdx < tgtIdx Then
         Do Until LBxIncl.ListIndex = tgtIdx
             BtnMoveDown_Click
@@ -537,17 +605,11 @@ Private Sub BtnMoveAfter_Click()
         Do Until LBxIncl.ListIndex = tgtIdx + 1
             BtnMoveUp_Click
         Loop
+    ' Do nothing if source and target indices are equal
     End If
     
-'    Do Until LBxIncl.ListIndex = tgtIdx
-'        If srcIdx < tgtIdx Then
-'            BtnMoveDown_Click
-'        ElseIf srcIdx > tgtIdx Then
-'            BtnMoveUp_Click
-'        End If
-'    Loop
-    
-    ' No repop appears to be needed
+    ' No repop should be needed, since this is implemented using
+    ' other methods that do the repop themselves.
     
 End Sub
 
@@ -555,6 +617,7 @@ Private Sub BtnMoveUp_Click()
     
     Dim val As Long
     
+    ' Must be items in the list
     If LBxIncl.List(0, 0) = NONE_FOUND Then Exit Sub
     
     ' Can't move the top item up...
@@ -579,12 +642,14 @@ Private Sub BtnMoveUp_Click()
     ' Select the 'moved up' item
     LBxIncl.ListIndex = val - 1
     
-    ' Repop the lists
+    ' Repopulate the lists
     popLists
     
 End Sub
 
 Private Sub BtnOpen_Click()
+    ' Prompt for user selection of folder to use
+
     Dim fd As FileDialog
     
     Set fd = Application.FileDialog(msoFileDialogFolderPicker)
@@ -599,13 +664,17 @@ Private Sub BtnOpen_Click()
         Set fld = fs.GetFolder(.SelectedItems(1))
     End With
     
+    ' Populate the lists once the folder is selected
     popLists
     
+    ' Populate the folder path textbox with the full path
     TBxFld = fld.Path
     
 End Sub
 
 Private Sub BtnOpenExcl_Click()
+    ' Open the selected file in the exclude list with the default viewer.
+    
     Dim shl As New Shell, filePath As String
     
     If Not fld Is Nothing Then
@@ -618,6 +687,8 @@ Private Sub BtnOpenExcl_Click()
 End Sub
 
 Private Sub BtnOpenIncl_Click()
+    ' Open the selected file in the include list with the default viewer.
+    
     Dim shl As New Shell, filePath As String
     
     If Not fld Is Nothing Then
@@ -630,15 +701,20 @@ Private Sub BtnOpenIncl_Click()
 End Sub
 
 Private Sub BtnReload_Click()
+    ' Just refresh the include/exclude lists
     popLists
 End Sub
 
 Private Sub BtnRemove_Click()
+    ' Remove the selected 'included' item to the 'excluded' list
     
+    ' Folder has to be selected
     If fld Is Nothing Then Exit Sub
     
+    ' Included list has to have items in it
     If LBxIncl.List(0, 0) = NONE_FOUND Then Exit Sub
     
+    ' Something has to be selected in the 'included' list
     If LBxIncl.ListIndex < 0 Then Exit Sub
     
     ' Should be fine to remove now
@@ -647,11 +723,14 @@ Private Sub BtnRemove_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(x)" & mch.SubMatches(2)
     
+    ' Repopulate the include/exclude lists
     popLists
     
 End Sub
 
 Private Sub BtnShowFolder_Click()
+    ' Open the selected folder in Explorer
+    
     Dim shl As New Shell
     
     If Not fld Is Nothing Then
@@ -661,10 +740,13 @@ Private Sub BtnShowFolder_Click()
 End Sub
 
 Private Sub UserForm_Activate()
+    ' Used to be a catch for an invalid Reader; might be obsolete.
     If cancelLoad Then Unload FrmBackupSort
 End Sub
 
 Private Sub UserForm_Initialize()
+    ' Initialize userform globals &c.
+    
     Dim workStr As String
     Dim dp As DocumentProperty, resp As VbMsgBoxResult
     
@@ -673,7 +755,7 @@ Private Sub UserForm_Initialize()
     'Set shAp = CreateObject("Shell.Application")
     
     cancelLoad = False
-    populated = False
+    'populated = False
     
     ' Initialize the Regex to find filenames formatted with the
     ' budget line item syntax
@@ -684,6 +766,8 @@ Private Sub UserForm_Initialize()
         .Pattern = "^\((([0-9]+|x)+)\)(.+)$"
     End With
     
+    ' Populate the lists. For now, this should always just
+    ' put EMPTY_LIST into both included & excluded
     popLists
     
 End Sub
