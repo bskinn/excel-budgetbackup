@@ -32,11 +32,23 @@ Attribute VB_Exposed = False
 
 Option Explicit
 
+' General objects
 Dim fs As Scripting.FileSystemObject, fld As Scripting.Folder, fl As Scripting.File
 Dim wsf As WorksheetFunction
-Dim rxFnameFmt As New VBScript_RegExp_55.RegExp
 
-'Dim populated As Boolean
+' Regexes
+' General filename, checks that starts with valid parenned index, incl or excl
+Dim rxFNIdxValid As New VBScript_RegExp_55.RegExp
+
+' Detailed formating match of 'included' file
+Dim rxInclFnameDetail As New VBScript_RegExp_55.RegExp
+
+' Detailed formatting match of 'excluded' file
+Dim rxExclFnameDetail As New VBScript_RegExp_55.RegExp
+
+' Detailed formatting match of 'included' or 'excluded' file
+Dim rxFnameDetail As New VBScript_RegExp_55.RegExp
+
 Dim wasPacked As Boolean
 Dim inclIdx As Long, exclIdx As Long
 Dim inclView As Long, exclView As Long
@@ -89,7 +101,6 @@ Private Sub popLists(Optional internalCall As Boolean = False)
         ' So, set Empty
         LBxExcl.AddItem EMPTY_LIST
         LBxIncl.AddItem EMPTY_LIST
-        'populated = False
         
         ' ... and by definition this can't be an internal call,
         ' so *do* go to the final exit code.
@@ -101,10 +112,10 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     
     ' Iterate through the files in the folder and sort to
     ' include/exclude lists as relevant.
-    ' Ignores any files with names not matching rxFnameFmt
+    ' Ignores any files with names not matching rxFNIdxValid
     For Each fl In fld.Files
-        If rxFnameFmt.Test(fl.Name) Then
-            Set mch = rxFnameFmt.Execute(fl.Name)(0)
+        If rxFNIdxValid.Test(fl.Name) Then
+            Set mch = rxFNIdxValid.Execute(fl.Name)(0)
             If LCase(mch.SubMatches(1)) = "x" Then
                 LBxExcl.AddItem fl.Name
             Else
@@ -161,8 +172,8 @@ Private Sub padNums()
     Dim mch As VBScript_RegExp_55.Match
     
     For Each fl In fld.Files
-        If rxFnameFmt.Test(fl.Name) Then
-            Set mch = rxFnameFmt.Execute(fl.Name)(0)
+        If rxFNIdxValid.Test(fl.Name) Then
+            Set mch = rxFNIdxValid.Execute(fl.Name)(0)
             ' I think .SubMatches(0) is the inner item that has the '+' applied to it,
             '  while .SM(1)is the full numerical match.  .SM(2) is the remainder of the
             '  filename.
@@ -184,7 +195,7 @@ Private Sub packNums()
     If LBxIncl.ListCount > 0 Then
         If LBxIncl.List(0, 0) <> NONE_FOUND Then
             For iter = 0 To LBxIncl.ListCount - 1
-                Set mch = rxFnameFmt.Execute(LBxIncl.List(iter, 0))(0)
+                Set mch = rxFNIdxValid.Execute(LBxIncl.List(iter, 0))(0)
                 If Not CLng(mch.SubMatches(1)) - 1 = iter Then
                     wasPacked = True
                     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
@@ -214,8 +225,8 @@ Private Sub BtnAppend_Click()
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
     ' Retrieve the filename and assign to File object;
-    ' ASSUMES ALREADY VETTED AGAINST rxFnameFmt
-    Set mch = rxFnameFmt.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
+    ' ASSUMES ALREADY VETTED AGAINST rxFNIdxValid
+    Set mch = rxFNIdxValid.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     
     ' Rename the file to an 'included' form
@@ -245,7 +256,7 @@ Private Sub BtnGenSheet_Click()
     Dim sht As Worksheet
     Dim workCel As Range, tblCel As Range
     Dim celS As Range, celE As Range, celM As Range, celC As Range, celT As Range
-    Dim rx As New RegExp, mchs As MatchCollection, mch As Match
+    Dim mchs As MatchCollection, mch As Match
     Dim fl As File
     Dim counts As Variant, anyFlsFound As Boolean
     Dim inlaids As Variant
@@ -266,23 +277,14 @@ Private Sub BtnGenSheet_Click()
     ' Drop if folder is not selected
     If fld Is Nothing Then Exit Sub
     
-    ' Set up the regex for picking apart the filename
-    ' PROBABLY COULD BE RELOCATED TO A GLOBAL?
-    With rx
-        .Global = False
-        .MultiLine = False
-        .IgnoreCase = True
-        .Pattern = "^\(([0-9]+)\)\s+\[([SEMCT])\](.+?) - (.+) -- ([0-9.]+)\(([0-9.]+)\)\.[0-9a-z]+$"
-    End With
-    
     ' Scan the work folder for properly configured filenames
     counts = Array(0, 0, 0, 0, 0)
     inlaids = Array(0, 0, 0, 0, 0)
     anyFlsFound = False
     For Each fl In fld.Files
-        If rx.Test(fl.Name) Then
+        If rxInclFnameDetail.Test(fl.Name) Then
             anyFlsFound = True
-            Set mch = rx.Execute(fl.Name)(0)
+            Set mch = rxInclFnameDetail.Execute(fl.Name)(0)
             
             ' Increment the relevant category count
             Select Case UCase(mch.SubMatches(smchType))
@@ -364,8 +366,8 @@ Private Sub BtnGenSheet_Click()
     
     ' Loop over the files and, if rx.Test, insert
     For Each fl In fld.Files
-        If rx.Test(fl.Name) Then
-            Set mch = rx.Execute(fl.Name)(0)
+        If rxInclFnameDetail.Test(fl.Name) Then
+            Set mch = rxInclFnameDetail.Execute(fl.Name)(0)
             Select Case UCase(mch.SubMatches(smchType))
             Case "S"
                 Set workCel = celS.Offset(1 + inlaids(idxS), 0)
@@ -515,7 +517,7 @@ Private Sub BtnInsert_Click()
     ' Loop from the end of the 'included' list to the selection point, incrementing filenames
     val = LBxIncl.ListIndex
     For iter = LBxIncl.ListCount - 1 To LBxIncl.ListIndex Step -1
-        Set mch = rxFnameFmt.Execute(LBxIncl.List(iter, 0))(0)
+        Set mch = rxFNIdxValid.Execute(LBxIncl.List(iter, 0))(0)
         Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
         ' Need to add trap for if file is locked, EVERY TIME a file is renamed.
         '  Probably will want a utility function for this
@@ -523,7 +525,7 @@ Private Sub BtnInsert_Click()
     Next iter
     
     ' Number the item to be added appropriately
-    Set mch = rxFnameFmt.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
+    Set mch = rxFNIdxValid.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
@@ -554,12 +556,12 @@ Private Sub BtnMoveDown_Click()
     ' Fragile to identical filenames except for the number, but this should
     '  only happen in stupid cases, not most real-life scenarios
     ' Move the selected file down
-    Set mch = rxFnameFmt.Execute(LBxIncl.List(val, 0))(0)
+    Set mch = rxFNIdxValid.Execute(LBxIncl.List(val, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 2, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
     ' Move the 'down' file into the vacated spot
-    Set mch = rxFnameFmt.Execute(LBxIncl.List(val + 1, 0))(0)
+    Set mch = rxFNIdxValid.Execute(LBxIncl.List(val + 1, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
@@ -639,12 +641,12 @@ Private Sub BtnMoveUp_Click()
     ' Fragile to identical filenames except for the number, but this should
     '  only happen in stupid cases, not most real-life scenarios
     ' Move the selected file up
-    Set mch = rxFnameFmt.Execute(LBxIncl.List(val, 0))(0)
+    Set mch = rxFNIdxValid.Execute(LBxIncl.List(val, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
     ' Move the 'up' file into the vacated spot
-    Set mch = rxFnameFmt.Execute(LBxIncl.List(val - 1, 0))(0)
+    Set mch = rxFNIdxValid.Execute(LBxIncl.List(val - 1, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
@@ -729,7 +731,7 @@ Private Sub BtnRemove_Click()
     If LBxIncl.ListIndex < 0 Then Exit Sub
     
     ' Should be fine to remove now
-    Set mch = rxFnameFmt.Execute(LBxIncl.List(LBxIncl.ListIndex, 0))(0)
+    Set mch = rxFNIdxValid.Execute(LBxIncl.List(LBxIncl.ListIndex, 0))(0)
     
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(x)" & mch.SubMatches(2)
@@ -750,11 +752,6 @@ Private Sub BtnShowFolder_Click()
     
 End Sub
 
-Private Sub UserForm_Activate()
-    ' Used to be a catch for an invalid Reader; might be obsolete.
-    If cancelLoad Then Unload FrmBackupSort
-End Sub
-
 Private Sub UserForm_Initialize()
     ' Initialize userform globals &c.
     
@@ -765,17 +762,8 @@ Private Sub UserForm_Initialize()
     Set wsf = Application.WorksheetFunction
     'Set shAp = CreateObject("Shell.Application")
     
-    cancelLoad = False
-    'populated = False
-    
-    ' Initialize the Regex to find filenames formatted with the
-    ' budget line item syntax
-    With rxFnameFmt
-        .Global = False
-        .MultiLine = False
-        .IgnoreCase = True
-        .Pattern = "^\((([0-9]+|x)+)\)(.+)$"
-    End With
+    ' Init Regexes
+    compileRegexes
     
     ' Populate the lists. For now, this should always just
     ' put EMPTY_LIST into both included & excluded
@@ -783,3 +771,42 @@ Private Sub UserForm_Initialize()
     
 End Sub
 
+Private Sub compileRegexes()
+    ' Helper to recompile regexes
+    ' Anticipates implementation of customizable item categories
+    
+    ' Valid starting '(...)' index format, generalized to allow
+    ' multiple "x"s for 'excluded' files.
+    With rxFNIdxValid
+        .Global = False
+        .MultiLine = False
+        .IgnoreCase = True
+        .Pattern = "^\((([0-9]+|x)+)\)(.+)$"
+    End With
+    
+    ' Detailed matching of an included file, with submatches
+    With rxInclFnameDetail
+        .Global = False
+        .MultiLine = False
+        .IgnoreCase = True
+        .Pattern = "^\(([0-9]+)\)\s+\[([SEMCT])\](.+?) - (.+) -- ([0-9.]+)\(([0-9.]+)\)\.[_0-9a-z]+$"
+    End With
+    
+    ' Detailed matching of an excluded file, with submatches
+    ' Submatch catching the 'x' is retained for index parity with the included files
+    With rxExclFnameDetail
+        .Global = False
+        .MultiLine = False
+        .IgnoreCase = True
+        .Pattern = "^\((x)\)\s+\[([SEMCT])\](.+?) - (.+) -- ([0-9.]+)\(([0-9.]+)\)\.[_0-9a-z]+$"
+    End With
+    
+    ' Detailed matching of an included or excluded file, with submatches
+    With rxExclFnameDetail
+        .Global = False
+        .MultiLine = False
+        .IgnoreCase = True
+        .Pattern = "^\(([0-9]+|x)\)\s+\[([SEMCT])\](.+?) - (.+) -- ([0-9.]+)\(([0-9.]+)\)\.[_0-9a-z]+$"
+    End With
+    
+End Sub
