@@ -33,7 +33,7 @@ Attribute VB_Exposed = False
 Option Explicit
 
 Dim fs As Scripting.FileSystemObject, fld As Scripting.Folder, fl As Scripting.File
-Dim mch As VBScript_RegExp_55.Match, wsf As WorksheetFunction
+Dim wsf As WorksheetFunction
 Dim rxFnameFmt As New VBScript_RegExp_55.RegExp
 
 'Dim populated As Boolean
@@ -57,6 +57,7 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     ' in a change to the folder contents.
     
     Dim ctrl As Control
+    Dim mch As VBScript_RegExp_55.Match
 
     ' If an external call, disable everything
     ' THIS LIKELY WILL BE OBSOLETED BY A UNIFIED
@@ -157,6 +158,8 @@ Private Sub padNums()
     '
     ' For now, only pads single-digit numbers.
     
+    Dim mch As VBScript_RegExp_55.Match
+    
     For Each fl In fld.Files
         If rxFnameFmt.Test(fl.Name) Then
             Set mch = rxFnameFmt.Execute(fl.Name)(0)
@@ -176,6 +179,7 @@ Private Sub packNums()
     ' repeated indices.
     
     Dim workStr As String, iter As Long
+    Dim mch As VBScript_RegExp_55.Match
     
     If LBxIncl.ListCount > 0 Then
         If LBxIncl.List(0, 0) <> NONE_FOUND Then
@@ -195,6 +199,8 @@ End Sub
 Private Sub BtnAppend_Click()
     ' Append the selected item from the Exclude list
     ' to the end of the Include list
+    
+    Dim mch As VBScript_RegExp_55.Match
     
     ' No folder selected, so exit with no action
     ' TO BE OBSOLETED BY CONTROL ACTIVATION/INACTIVATION
@@ -491,6 +497,7 @@ End Sub
 Private Sub BtnInsert_Click()
     ' Insert selected 'excluded' item at cursor of 'included' list
     Dim val As Long, iter As Long, workStr As String
+    Dim mch As VBScript_RegExp_55.Match
     
     ' Proofing; exit if invalid state
     If fld Is Nothing Then Exit Sub
@@ -529,6 +536,7 @@ Private Sub BtnMoveDown_Click()
     ' Move selected item down in the 'included' list
     
     Dim val As Long
+    Dim mch As VBScript_RegExp_55.Match
     
     ' Must be something in the 'included' list
     If LBxIncl.List(0, 0) = NONE_FOUND Then Exit Sub
@@ -616,6 +624,7 @@ End Sub
 Private Sub BtnMoveUp_Click()
     
     Dim val As Long
+    Dim mch As VBScript_RegExp_55.Match
     
     ' Must be items in the list
     If LBxIncl.List(0, 0) = NONE_FOUND Then Exit Sub
@@ -707,6 +716,8 @@ End Sub
 
 Private Sub BtnRemove_Click()
     ' Remove the selected 'included' item to the 'excluded' list
+    
+    Dim mch As VBScript_RegExp_55.Match
     
     ' Folder has to be selected
     If fld Is Nothing Then Exit Sub
