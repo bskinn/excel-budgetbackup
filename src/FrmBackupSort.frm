@@ -49,15 +49,74 @@ Dim rxExclFnameDetail As New VBScript_RegExp_55.RegExp
 ' Detailed formatting match of 'included' or 'excluded' file
 Dim rxFnameDetail As New VBScript_RegExp_55.RegExp
 
-Dim wasPacked As Boolean
+' Global storage of indices for popLists
+' PROBABLY SHOULD PULL THESE INSIDE THE FUNCTION
 Dim inclIdx As Long, exclIdx As Long
 Dim inclView As Long, exclView As Long
-Dim cancelLoad As Boolean
 
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
 Const NUM_FORMAT As String = "00"
 Const CANCEL_RETURN As String = "!!CANCELED!!"
+
+Private Sub setCtrls()
+    
+    ' Update the listboxes
+    popLists
+    
+    ' Set enabled/disabled settings
+    setFldCtrls
+    setInclCtrls
+    setExclCtrls
+    
+End Sub
+
+Private Sub setFldCtrls()
+    ' Helper function for setting the folder buttons
+    
+    Dim fldIsBound As Boolean
+    
+    fldIsBound = (Not fld Is Nothing)
+    If fldIsBound Then fldIsBound = fs.FolderExists(fld.Path)
+    
+    BtnOpen.Enabled = True  ' always enabled here
+    BtnReload.Enabled = fldIsBound
+    BtnShowFolder.Enabled = fldIsBound
+    
+End Sub
+
+Private Sub setInclCtrls()
+    ' Helper for setting the 'included' list buttons
+    
+    Dim anyIncls As Boolean
+    
+    anyIncls = (LBxIncl.ListCount >= 1) And (LBxIncl.List(0, 0) <> NONE_FOUND) _
+                And (LBxIncl.List(0, 0) <> EMPTY_LIST)
+    
+    LBxIncl.Enabled = anyIncls
+    BtnOpenIncl.Enabled = anyIncls
+    BtnMoveUp.Enabled = anyIncls
+    BtnMoveDown.Enabled = anyIncls
+    BtnMoveAfter.Enabled = anyIncls
+    BtnRemove.Enabled = anyIncls
+    BtnGenSheet.Enabled = anyIncls
+    
+End Sub
+
+Private Sub setExclCtrls()
+    ' Helper for setting the 'excluded' list buttons
+    
+    Dim anyExcls As Boolean
+    
+    anyExcls = (LBxExcl.ListCount >= 1) And (LBxExcl.List(0, 0) <> NONE_FOUND) _
+                And (LBxExcl.List(0, 0) <> EMPTY_LIST)
+
+    LBxExcl.Enabled = anyExcls
+    BtnOpenExcl.Enabled = anyExcls
+    BtnAppend.Enabled = anyExcls
+    BtnInsert.Enabled = anyExcls
+    
+End Sub
 
 Private Sub popLists(Optional internalCall As Boolean = False)
     ' Clear and repopulate the included/excluded items LBxes
@@ -71,21 +130,9 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     Dim ctrl As Control
     Dim mch As VBScript_RegExp_55.Match
 
-    ' If an external call, disable everything
-    ' THIS LIKELY WILL BE OBSOLETED BY A UNIFIED
-    ' ENABLE/DISABLE FUNCTIONALITY
-    If Not internalCall Then
-        For Each ctrl In FrmBackupSort.Controls
-            If TypeOf ctrl Is CommandButton Or _
-                    TypeOf ctrl Is ListBox Then
-                ctrl.Enabled = False
-            End If
-        Next ctrl
-    End If
-
     ' Store current selection/view indices if this is an external call,
     ' for restore after list repopulation.
-    If Not wasPacked Then
+    If Not internalCall Then
         exclIdx = LBxExcl.ListIndex
         inclIdx = LBxIncl.ListIndex
         
@@ -124,12 +171,9 @@ Private Sub popLists(Optional internalCall As Boolean = False)
         End If
     Next fl
     
-    ' Set flag to check if any number packing was done;
-    ' do the packing, and then re-call this routine
-    ' as an internal call to re-update the listboxes
-    wasPacked = False
-    packNums
-    If wasPacked Then Call popLists(internalCall:=True)
+    ' Attempt number packing; if it was done, then recall
+    ' popLists as internal
+    If packNums Then Call popLists(internalCall:=True)
     
     ' Only run the finalizing code for the outermost, external
     ' call of the function
@@ -150,16 +194,6 @@ Final_Exit:
     LBxIncl.ListIndex = wsf.Min(inclIdx, LBxIncl.ListCount - 1)
     LBxExcl.TopIndex = exclView
     LBxIncl.TopIndex = inclView
-    
-    ' Re-enable all the controls
-    ' LIKELY TO BE OBSOLETED IN FAVOR OF A MORE GRANULAR ENABLE/DISABLE
-    ' FUNCTIONALITY
-    For Each ctrl In FrmBackupSort.Controls
-        If TypeOf ctrl Is CommandButton Or _
-                TypeOf ctrl Is ListBox Then
-            ctrl.Enabled = True
-        End If
-    Next ctrl
 
 End Sub
 
@@ -184,7 +218,7 @@ Private Sub padNums()
     Next fl
 End Sub
 
-Private Sub packNums()
+Private Function packNums() As Boolean
     ' Scan the 'included' listbox and repack all of the
     ' filename indexing so that there are no gaps, and no
     ' repeated indices.
@@ -192,12 +226,14 @@ Private Sub packNums()
     Dim workStr As String, iter As Long
     Dim mch As VBScript_RegExp_55.Match
     
+    packNums = False
+    
     If LBxIncl.ListCount > 0 Then
         If LBxIncl.List(0, 0) <> NONE_FOUND Then
             For iter = 0 To LBxIncl.ListCount - 1
                 Set mch = rxFNIdxValid.Execute(LBxIncl.List(iter, 0))(0)
                 If Not CLng(mch.SubMatches(1)) - 1 = iter Then
-                    wasPacked = True
+                    packNums = True
                     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
                     fl.Name = "(" & Format(iter + 1, "00") & ")" & mch.SubMatches(2)
                 End If
@@ -205,7 +241,7 @@ Private Sub packNums()
         End If
     End If
     
-End Sub
+End Function
 
 Private Sub BtnAppend_Click()
     ' Append the selected item from the Exclude list
@@ -238,8 +274,8 @@ Private Sub BtnAppend_Click()
         fl.Name = "(" & Format(LBxIncl.ListCount + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     End If
     
-    ' Repopulate both lists
-    popLists
+    ' Refresh form
+    setCtrls
     
 End Sub
 
@@ -282,30 +318,33 @@ Private Sub BtnGenSheet_Click()
     inlaids = Array(0, 0, 0, 0, 0)
     anyFlsFound = False
     For Each fl In fld.Files
-        If rxInclFnameDetail.Test(fl.Name) Then
-            anyFlsFound = True
-            Set mch = rxInclFnameDetail.Execute(fl.Name)(0)
-            
-            ' Increment the relevant category count
-            Select Case UCase(mch.SubMatches(smchType))
-            Case "S"
-                counts(idxS) = counts(idxS) + 1
-            Case "E"
-                counts(idxE) = counts(idxE) + 1
-            Case "M"
-                counts(idxM) = counts(idxM) + 1
-            Case "C"
-                counts(idxC) = counts(idxC) + 1
-            Case "T"
-                counts(idxT) = counts(idxT) + 1
-            End Select
-        Else
-            ' Notify of non-matching item, if not an 'excluded' item
-            ' TO BE RELOCATED ELSEWHERE, PER #23
-            If Not UCase(Left(fl.Name, 3)) = "(X)" Then
-                MsgBox "The following item is named in an unrecognized format " & _
-                        "and will be skipped:" & vbCrLf & vbCrLf & fl.Name, _
-                        vbOKOnly + vbExclamation, "Skipping item"
+        ' Ignore any files not starting with a paren
+        If Left(fl.Name, 1) = "(" Then
+            ' If a file is found matching the 'included' filter, then count it
+            If rxInclFnameDetail.Test(fl.Name) Then
+                anyFlsFound = True
+                Set mch = rxInclFnameDetail.Execute(fl.Name)(0)
+                
+                ' Increment the relevant category count
+                Select Case UCase(mch.SubMatches(smchType))
+                Case "S"
+                    counts(idxS) = counts(idxS) + 1
+                Case "E"
+                    counts(idxE) = counts(idxE) + 1
+                Case "M"
+                    counts(idxM) = counts(idxM) + 1
+                Case "C"
+                    counts(idxC) = counts(idxC) + 1
+                Case "T"
+                    counts(idxT) = counts(idxT) + 1
+                End Select
+            Else
+                ' Notify of non-matching item, if not an 'excluded' item
+                If Not rxExclFnameDetail.Test(fl.Name) Then
+                    MsgBox "The following item is named in an unrecognized format " & _
+                            "and will be skipped:" & vbCrLf & vbCrLf & fl.Name, _
+                            vbOKOnly + vbExclamation, "Skipping item"
+                End If
             End If
         End If
     Next fl
@@ -529,8 +568,8 @@ Private Sub BtnInsert_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
-    ' Repopulate the lists
-    popLists
+    ' Refresh form
+    setCtrls
     
 End Sub
 
@@ -568,8 +607,8 @@ Private Sub BtnMoveDown_Click()
     ' Select the 'moved down' item
     LBxIncl.ListIndex = val + 1
     
-    ' Repop the lists
-    popLists
+    ' Refresh form
+    setCtrls
     
 End Sub
 
@@ -653,8 +692,8 @@ Private Sub BtnMoveUp_Click()
     ' Select the 'moved up' item
     LBxIncl.ListIndex = val - 1
     
-    ' Repopulate the lists
-    popLists
+    ' Refresh form
+    setCtrls
     
 End Sub
 
@@ -675,8 +714,8 @@ Private Sub BtnOpen_Click()
         Set fld = fs.GetFolder(.SelectedItems(1))
     End With
     
-    ' Populate the lists once the folder is selected
-    popLists
+    ' Refresh form
+    setCtrls
     
     ' Populate the folder path textbox with the full path
     TBxFld = fld.Path
@@ -712,8 +751,8 @@ Private Sub BtnOpenIncl_Click()
 End Sub
 
 Private Sub BtnReload_Click()
-    ' Just refresh the include/exclude lists
-    popLists
+    ' Refresh form
+    setCtrls
 End Sub
 
 Private Sub BtnRemove_Click()
@@ -736,8 +775,8 @@ Private Sub BtnRemove_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(x)" & mch.SubMatches(2)
     
-    ' Repopulate the include/exclude lists
-    popLists
+    ' Refresh form
+    setCtrls
     
 End Sub
 
@@ -765,9 +804,10 @@ Private Sub UserForm_Initialize()
     ' Init Regexes
     compileRegexes
     
-    ' Populate the lists. For now, this should always just
+    ' Populate the lists & refresh the form. For now, this should always just
     ' put EMPTY_LIST into both included & excluded
-    popLists
+    ' Refresh form
+    setCtrls
     
 End Sub
 
