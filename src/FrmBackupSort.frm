@@ -22,7 +22,7 @@ Attribute VB_Exposed = False
 ' #                bskinn@alum.mit.edu
 ' #
 ' # Created:     13 Jan 2015
-' # Copyright:   (c) Brian Skinn 2017
+' # Copyright:   (c) Brian Skinn 2015-2018
 ' # License:     The MIT License; see "LICENSE.txt" for full license terms
 ' #                   and contributor agreement.
 ' #
@@ -34,34 +34,27 @@ Option Explicit
 
 Dim fs As Scripting.FileSystemObject, fld As Scripting.Folder, fl As Scripting.File
 Dim mch As VBScript_RegExp_55.Match, wsf As WorksheetFunction
-Dim rx As New VBScript_RegExp_55.RegExp
+Dim rxFnameFmt As New VBScript_RegExp_55.RegExp
 Dim populated As Boolean, wasPacked As Boolean
 Dim inclIdx As Long, exclIdx As Long
 Dim inclView As Long, exclView As Long
-Dim cancelLoad As Boolean, openBtnState As Boolean
+Dim cancelLoad As Boolean
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
 Const NUM_FORMAT As String = "00"
-Const READER_PATH As String = "C:\Program Files (x86)\Adobe\Reader 10.0\Reader\AcroRd32.exe"
-Const READER_PROP_NAME As String = "ReaderEXE"
-Const READER_EXE As String = "AcroRd32.exe"
 Const CANCEL_RETURN As String = "!!CANCELED!!"
 
-Public Sub clearReaderLocation()
-    Dim prp As DocumentProperty, iter As Long
+Private Sub popLists(Optional internalCall As Boolean = False)
+    ' internalCall should be False for all calls to popLists
+    ' outside of the popLists function itself.
+    ' popLists uses internalCall = True for repeat internal
+    ' calls, in cases such as where packNums actually results
+    ' in a change to the folder contents.
     
-    For iter = ThisWorkbook.CustomDocumentProperties.Count To 1 Step -1
-        Set prp = ThisWorkbook.CustomDocumentProperties(iter)
-        If prp.Name = READER_PROP_NAME Then prp.Delete
-    Next iter
-    
-End Sub
-
-Private Sub popLists(Optional firstCall As Boolean = True)
     Dim ctrl As Control
 
     ' If the first call, disable everything
-    If firstCall Then
+    If Not internalCall Then
         For Each ctrl In FrmBackupSort.Controls
             If TypeOf ctrl Is CommandButton Or _
                     TypeOf ctrl Is ListBox Then
@@ -94,8 +87,8 @@ Private Sub popLists(Optional firstCall As Boolean = True)
     padNums
     
     For Each fl In fld.Files
-        If rx.Test(fl.Name) Then
-            Set mch = rx.Execute(fl.Name)(0)
+        If rxFnameFmt.Test(fl.Name) Then
+            Set mch = rxFnameFmt.Execute(fl.Name)(0)
             If LCase(mch.SubMatches(1)) = "x" Then
                 LBxExcl.AddItem fl.Name
             Else
@@ -106,11 +99,12 @@ Private Sub popLists(Optional firstCall As Boolean = True)
     
     wasPacked = False
     packNums
-    If wasPacked Then Call popLists(False)
+    If wasPacked Then Call popLists(internalCall:=True)
     
     ' Only run the finishing stuff if the initial call
-    If firstCall Then GoTo Final_Exit
+    If Not internalCall Then GoTo Final_Exit
     
+    ' Exit if this is an internal call
     Exit Sub
 
 Final_Exit:
@@ -131,17 +125,13 @@ Final_Exit:
             ctrl.Enabled = True
         End If
     Next ctrl
-    
-    ' Readjust the Enabled state of the Open buttons as needed
-    BtnOpenExcl.Enabled = openBtnState
-    BtnOpenIncl.Enabled = openBtnState
 
 End Sub
 
 Private Sub padNums()
     For Each fl In fld.Files
-        If rx.Test(fl.Name) Then
-            Set mch = rx.Execute(fl.Name)(0)
+        If rxFnameFmt.Test(fl.Name) Then
+            Set mch = rxFnameFmt.Execute(fl.Name)(0)
             ' I think .SubMatches(0) is the inner item that has the '+' applied to it,
             '  while .SM(1)is the full numerical match.  .SM(2) is the remainder of the
             '  filename.
@@ -158,7 +148,7 @@ Private Sub packNums()
     If LBxIncl.ListCount > 0 Then
         If LBxIncl.List(0, 0) <> NONE_FOUND Then
             For iter = 0 To LBxIncl.ListCount - 1
-                Set mch = rx.Execute(LBxIncl.List(iter, 0))(0)
+                Set mch = rxFnameFmt.Execute(LBxIncl.List(iter, 0))(0)
                 If Not CLng(mch.SubMatches(1)) - 1 = iter Then
                     wasPacked = True
                     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
@@ -170,98 +160,6 @@ Private Sub packNums()
     
 End Sub
 
-Private Function LocateReader() As String
-    ' Finds full path to AcroRd32.exe and returns it
-    ' Also stores it in a docProp
-    
-    Dim dp As DocumentProperty, readerProp As DocumentProperty
-    'Dim fs As FileSystemObject
-    Dim workStr As String
-    
-    ' Check if docprop exists; bind if so; create if not
-    With ThisWorkbook
-        If .CustomDocumentProperties.Count > 0 Then
-            For Each dp In .CustomDocumentProperties
-                If dp.Name = READER_PROP_NAME Then
-                    Set readerProp = dp
-                    Exit For
-                End If
-            Next dp
-        End If
-        
-        If readerProp Is Nothing Then
-            .CustomDocumentProperties.Add READER_PROP_NAME, False, msoPropertyTypeString, ""
-            Set readerProp = .CustomDocumentProperties(READER_PROP_NAME)
-        End If
-    End With
-    
-    ' Bind filesystem object (nah, should already be bound as a global)
-    'Set fs = CreateObject("Scripting.FileSystemObject")
-    
-    ' Check if file in property exists. If so, assume valid and return as such.
-    If fs.FileExists(readerProp.Value) Then
-        LocateReader = readerProp.Value
-        Exit Function
-    End If
-    
-    ' File doesn't exist; have to track down Reader
-    ' Assume only need to search C: drive, 'Program Files' subfolders
-    workStr = RecursiveFileSearch(READER_EXE, fs.GetFolder("C:\Program Files"))
-    
-    ' Only check for the (x86) folder if not found in 'base' version
-    If workStr = "" Then
-        If fs.FolderExists("C:\Program Files (x86)") Then
-            workStr = RecursiveFileSearch(READER_EXE, fs.GetFolder("C:\Program Files (x86)"))
-        End If
-    End If
-    
-    ' Apply string into property, save the addin file, and return the path
-    readerProp.Value = workStr
-    ThisWorkbook.Save
-    LocateReader = workStr
-    
-End Function
-
-Private Function RecursiveFileSearch(fName As String, baseFld As Folder) As String
-    ' Empty string return means not found, keep looking
-    ' Non-empty string should contain desired path to file
-    Dim fl As File, fld As Folder
-    Dim workStr As String
-    
-    ' Initialize unsuccessful return
-    RecursiveFileSearch = ""
-    
-    ' Update the notification label
-    FrmWait.LblCurrFld.Caption = baseFld.Path
-    
-    ' First search the base folder
-    For Each fl In baseFld.Files
-        If fl.Name = fName Then
-            RecursiveFileSearch = fl.Path
-            Exit Function
-        End If
-        
-        ' Ensure able to 'hear' Cancel button press
-        DoEvents
-        
-        ' If cancel pressed, dump out
-        If FrmWait.stopFlag = True Then
-            RecursiveFileSearch = CANCEL_RETURN
-            Exit Function
-        End If
-    Next fl
-    
-    ' File not found; recurse through the subfolders
-    For Each fld In baseFld.SubFolders
-        workStr = RecursiveFileSearch(fName, fld)
-        If workStr <> "" Then
-            RecursiveFileSearch = workStr
-            Exit Function
-        End If
-    Next fld
-    
-End Function
-
 Private Sub BtnAppend_Click()
     If fld Is Nothing Then Exit Sub
     
@@ -269,7 +167,7 @@ Private Sub BtnAppend_Click()
     
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
-    Set mch = rx.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
+    Set mch = rxFnameFmt.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
     
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     If LBxIncl.List(0, 0) = NONE_FOUND Then
@@ -556,7 +454,7 @@ Private Sub BtnInsert_Click()
     ' Loop from the end of the 'included' list to the selection point, incrementing filenames
     val = LBxIncl.ListIndex
     For iter = LBxIncl.ListCount - 1 To LBxIncl.ListIndex Step -1
-        Set mch = rx.Execute(LBxIncl.List(iter, 0))(0)
+        Set mch = rxFnameFmt.Execute(LBxIncl.List(iter, 0))(0)
         Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
         ' Need to add trap for if file is locked, EVERY TIME a file is renamed.
         '  Probably will want a utility function for this
@@ -564,7 +462,7 @@ Private Sub BtnInsert_Click()
     Next iter
     
     ' Number the item to be added appropriately
-    Set mch = rx.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
+    Set mch = rxFnameFmt.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
@@ -592,12 +490,12 @@ Private Sub BtnMoveDown_Click()
     ' Fragile to identical filenames except for the number, but this should
     '  only happen in stupid cases, not most real-life scenarios
     ' Move the selected file down
-    Set mch = rx.Execute(LBxIncl.List(val, 0))(0)
+    Set mch = rxFnameFmt.Execute(LBxIncl.List(val, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 2, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
     ' Move the 'down' file into the vacated spot
-    Set mch = rx.Execute(LBxIncl.List(val + 1, 0))(0)
+    Set mch = rxFnameFmt.Execute(LBxIncl.List(val + 1, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
@@ -669,12 +567,12 @@ Private Sub BtnMoveUp_Click()
     ' Fragile to identical filenames except for the number, but this should
     '  only happen in stupid cases, not most real-life scenarios
     ' Move the selected file up
-    Set mch = rx.Execute(LBxIncl.List(val, 0))(0)
+    Set mch = rxFnameFmt.Execute(LBxIncl.List(val, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
     ' Move the 'up' file into the vacated spot
-    Set mch = rx.Execute(LBxIncl.List(val - 1, 0))(0)
+    Set mch = rxFnameFmt.Execute(LBxIncl.List(val - 1, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
@@ -713,7 +611,6 @@ Private Sub BtnOpenExcl_Click()
     If Not fld Is Nothing Then
         If LBxExcl.ListIndex > -1 And LBxExcl.Value <> NONE_FOUND Then
             filePath = fs.BuildPath(fld.Path, LBxExcl.Value)
-            'shl.ShellExecute READER_PATH, filePath, , "Open", 1
             shl.ShellExecute filePath
         End If
     End If
@@ -726,7 +623,6 @@ Private Sub BtnOpenIncl_Click()
     If Not fld Is Nothing Then
         If LBxIncl.ListIndex > -1 And LBxIncl.Value <> NONE_FOUND Then
             filePath = fs.BuildPath(fld.Path, LBxIncl.Value)
-            'shl.ShellExecute READER_PATH, filePath, , "Open", 1
             shl.ShellExecute filePath
         End If
     End If
@@ -746,7 +642,7 @@ Private Sub BtnRemove_Click()
     If LBxIncl.ListIndex < 0 Then Exit Sub
     
     ' Should be fine to remove now
-    Set mch = rx.Execute(LBxIncl.List(LBxIncl.ListIndex, 0))(0)
+    Set mch = rxFnameFmt.Execute(LBxIncl.List(LBxIncl.ListIndex, 0))(0)
     
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(x)" & mch.SubMatches(2)
@@ -779,7 +675,9 @@ Private Sub UserForm_Initialize()
     cancelLoad = False
     populated = False
     
-    With rx
+    ' Initialize the Regex to find filenames formatted with the
+    ' budget line item syntax
+    With rxFnameFmt
         .Global = False
         .MultiLine = False
         .IgnoreCase = True
@@ -787,48 +685,6 @@ Private Sub UserForm_Initialize()
     End With
     
     popLists
-    
-    ' Ensure Reader location is known
-    workStr = ""
-    For Each dp In ThisWorkbook.CustomDocumentProperties
-        If dp.Name = READER_PROP_NAME Then
-            workStr = dp.Value
-        End If
-    Next dp
-    
-    If Not fs.FileExists(workStr) Then
-        resp = MsgBox("Adobe Reader must be located in order to enable opening of PDFs." & _
-                        vbLf & vbLf & "The search process should take less than a minute. " & _
-                        vbLf & vbLf & "Locate Reader now?", vbYesNoCancel + vbQuestion, _
-                        "Locate Adobe Reader?")
-        Select Case resp
-        Case vbYes
-            ' Show the status form and locate the file
-            FrmWait.Show
-            workStr = LocateReader
-            Unload FrmWait
-            
-            ' Inform outcome
-            If fs.FileExists(workStr) Then
-                ' Presume found the right file
-                Call MsgBox("Adobe Reader successfully located.", vbOKOnly + vbInformation, _
-                        "Success")
-            Else
-                Call MsgBox("Adobe Reader was not found in any of the usual places.", _
-                        vbOKOnly + vbExclamation, "Failure")
-            End If
-        Case vbNo
-            ' Do nothing, just pass through
-        Case vbCancel
-            ' Hard exit
-            cancelLoad = True
-        End Select
-    End If
-    
-    ' Enable/disable 'Open' buttons depending on valid file found
-    openBtnState = fs.FileExists(workStr)
-    BtnOpenExcl.Enabled = openBtnState
-    BtnOpenIncl.Enabled = openBtnState
     
 End Sub
 

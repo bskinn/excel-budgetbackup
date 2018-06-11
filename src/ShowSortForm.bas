@@ -7,7 +7,7 @@ Attribute VB_Name = "ShowSortForm"
 ' #                bskinn@alum.mit.edu
 ' #
 ' # Created:     13 Jan 2015
-' # Copyright:   (c) Brian Skinn 2017
+' # Copyright:   (c) Brian Skinn 2015-2018
 ' # License:     The MIT License; see "LICENSE.txt" for full license terms
 ' #                   and contributor agreement.
 ' #
@@ -20,12 +20,4 @@ Option Explicit
 Public Sub showBackupForm()
 Attribute showBackupForm.VB_ProcData.VB_Invoke_Func = "J\n14"
     FrmBackupSort.Show
-End Sub
-
-Public Sub doClearReaderLoc()
-    ' Helper function to clear the stored Reader location before distribution
-    '  of an .xlam addin.
-    ' Ultimately obsolete; will be removed once the Reader search functionality
-    '  is culled.
-    FrmBackupSort.clearReaderLocation
 End Sub
