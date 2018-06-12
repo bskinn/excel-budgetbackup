@@ -56,6 +56,9 @@ Dim hash As Long
 ' Global collisions-or-no tracker variable
 Dim anyCollisions As Boolean
 
+' Global 'matching hash?' tracker
+Dim anyHashMismatch As Boolean
+
 
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
@@ -101,13 +104,13 @@ Private Sub setInclCtrls()
     anyIncls = (LBxIncl.ListCount >= 1) And (LBxIncl.List(0, 0) <> NONE_FOUND) _
                 And (LBxIncl.List(0, 0) <> EMPTY_LIST)
     
-    LBxIncl.Enabled = anyIncls
-    BtnOpenIncl.Enabled = anyIncls
-    BtnMoveUp.Enabled = anyIncls And (Not anyCollisions)
-    BtnMoveDown.Enabled = anyIncls And (Not anyCollisions)
-    BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions)
-    BtnRemove.Enabled = anyIncls And (Not anyCollisions)
-    BtnGenSheet.Enabled = anyIncls
+    LBxIncl.Enabled = anyIncls And (Not anyHashMismatch)
+    BtnOpenIncl.Enabled = anyIncls And (Not anyHashMismatch)
+    BtnMoveUp.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnMoveDown.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnRemove.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnGenSheet.Enabled = anyIncls And (Not anyHashMismatch)
     
 End Sub
 
@@ -119,10 +122,10 @@ Private Sub setExclCtrls()
     anyExcls = (LBxExcl.ListCount >= 1) And (LBxExcl.List(0, 0) <> NONE_FOUND) _
                 And (LBxExcl.List(0, 0) <> EMPTY_LIST)
 
-    LBxExcl.Enabled = anyExcls
-    BtnOpenExcl.Enabled = anyExcls
-    BtnAppend.Enabled = anyExcls And (Not anyCollisions)
-    BtnInsert.Enabled = anyExcls And (Not anyCollisions)
+    LBxExcl.Enabled = anyExcls And (Not anyHashMismatch)
+    BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch)
+    BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
     
 End Sub
 
@@ -379,6 +382,20 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
     checkNameCollisions = outStr
     
 End Function
+
+Private Sub doHashCheck()
+    ' Perform hash check and confirm whether it matches
+    ' the global stored value. Set global flag accordingly
+    
+    ' If hash doesn't match, alert to need to reload
+    anyHashMismatch = (hash <> hashFilenames)
+    
+    If anyHashMismatch Then
+        MsgBox "Folder contents have changed. Reload to proceed.", _
+                vbOKOnly + vbExclamation, "Folder Contents Changed"
+    End If
+    
+End Sub
 
 Private Function hashFilenames() As Long
     ' Hashing function for aggregated file names, dates, and sizes
@@ -946,6 +963,10 @@ Private Sub BtnOpen_Click()
     proofParens
     proofCollisions
     
+    ' Update the hash and reset the hash-match flag
+    hash = hashFilenames
+    anyHashMismatch = False
+    
     ' Refresh form generally
     setCtrls
     
@@ -970,6 +991,14 @@ Private Sub BtnOpenIncl_Click()
     
     Dim shl As New Shell, filePath As String
     
+    ' Hash check; exit and refresh the form if fails
+    doHashCheck
+    If anyHashMismatch Then
+        setCtrls
+        Exit Sub
+    End If
+    
+    ' Open the file
     If Not fld Is Nothing Then
         If LBxIncl.ListIndex > -1 And LBxIncl.Value <> NONE_FOUND Then
             filePath = fs.BuildPath(fld.Path, LBxIncl.Value)
@@ -983,6 +1012,10 @@ Private Sub BtnReload_Click()
     ' Proof parens and collisions
     proofParens
     proofCollisions
+    
+    ' Update the hash and reset the hash-match flag
+    hash = hashFilenames
+    anyHashMismatch = False
     
     ' Refresh form
     setCtrls
