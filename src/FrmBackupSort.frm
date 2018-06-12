@@ -287,6 +287,96 @@ Private Function checkParenNames() As String
     
 End Function
 
+Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As String
+    ' Check if any *VALID INCLUDED/EXCLUDED* filenames are
+    ' identical other than the "(...)" key
+    '
+    ' If onlyValid is True (default), then name collisions will only be checked
+    ' for files whose names are properly formatted for sheet generation
+    ' If False, then *ALL* files starting with '(##)' or '(x)' will be checked.
+    '
+    ' Returns error return string if folder not set
+    '
+    ' Returns newline-separated list of colliding files, if any found
+    '
+    ' Returns empty string if all is ok.
+    
+    Dim iter As Long, iter2 As Long
+    Dim fl As File, fl2 As File
+    Dim rxWork As RegExp
+    Dim nStr As String, nStr2 As String
+    Dim collStr As String, seenStr As String
+    Dim outStr As String
+    
+    Const sep As String = "|"
+    
+    outStr = ""
+    collStr = sep
+    seenStr = sep
+    
+    ' fld must be defined
+    If fld Is Nothing Then
+        checkNameCollisions = UNINIT_RETURN
+        Exit Function
+    End If
+    
+    ' Choose the relevant regex
+    If onlyValid Then
+        Set rxWork = rxFnameDetail
+    Else
+        Set rxWork = rxFNIdxValid
+    End If
+    
+    ' Crosscheck all the files
+    For Each fl In fld.Files
+        ' Only care here about collisions between valid-formatted files
+        If rxWork.Test(fl.Name) Then
+            ' Valid file; store everything past the key
+            nStr = rxFNIdxValid.Execute(fl.Name)(0).SubMatches(2)
+            
+            For Each fl2 In fld.Files
+                If rxWork.Test(fl2.Name) Then
+                    ' This one's good also; store its name for checking
+                    nStr2 = rxFNIdxValid.Execute(fl2.Name)(0).SubMatches(2)
+                    
+                    ' Ignore when they're the same file, or if the file's
+                    ' already been flagged as colliding xxxx, or if the file has
+                    ' already been seen as nStr
+                    If fl.Name <> fl2.Name And _
+                            InStr(seenStr, sep & fl2.Name & sep) < 1 Then
+                            
+                        ' If the names match, store for complaint!
+                        If nStr = nStr2 Then
+                            ' Store the first filename as colliding for output, if new
+                            If InStr(outStr, fl.Name & NL) < 1 Then
+                                outStr = outStr & fl.Name & NL
+                            End If
+                            
+                            ' Store the second filename as colliding for output, if new
+                            If InStr(outStr, fl2.Name & NL) < 1 Then
+                                outStr = outStr & fl2.Name & NL
+                            End If
+                            
+                            ' Store the non-key name portion as colliding, if new
+                            If InStr(collStr, sep & nStr & sep) < 1 Then
+                                collStr = collStr & nStr & sep
+                            End If
+                            
+                        End If
+                    End If
+                End If
+            Next fl2
+            
+            ' Store as seen, to speed up the looping
+            seenStr = seenStr & fl.Name & sep
+        End If
+    Next fl
+    
+    ' Transfer collection variable to function return value
+    checkNameCollisions = outStr
+    
+End Function
+
 Private Function hashFilenames() As Long
     ' Hashing function for aggregated file names, dates, and sizes
     ' Returns -1 if fld is not set
