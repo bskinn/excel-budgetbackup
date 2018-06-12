@@ -14,6 +14,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+
 ' # ------------------------------------------------------------------------------
 ' # Name:        FrmBackupSort.bas
 ' # Purpose:     Core form for "Budget Backup Manager" Excel VBA Add-In
@@ -49,10 +50,12 @@ Dim rxExclFnameDetail As New VBScript_RegExp_55.RegExp
 ' Detailed formatting match of 'included' or 'excluded' file
 Dim rxFnameDetail As New VBScript_RegExp_55.RegExp
 
-' Global storage of indices for popLists
-' PROBABLY SHOULD PULL THESE INSIDE THE FUNCTION
-'Dim inclIdx As Long, exclIdx As Long
-'Dim inclView As Long, exclView As Long
+' Global hash tracker variable
+Dim hash As Long
+
+' Global collisions-or-no tracker variable
+Dim anyCollisions As Boolean
+
 
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
@@ -100,10 +103,10 @@ Private Sub setInclCtrls()
     
     LBxIncl.Enabled = anyIncls
     BtnOpenIncl.Enabled = anyIncls
-    BtnMoveUp.Enabled = anyIncls
-    BtnMoveDown.Enabled = anyIncls
-    BtnMoveAfter.Enabled = anyIncls
-    BtnRemove.Enabled = anyIncls
+    BtnMoveUp.Enabled = anyIncls And (Not anyCollisions)
+    BtnMoveDown.Enabled = anyIncls And (Not anyCollisions)
+    BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions)
+    BtnRemove.Enabled = anyIncls And (Not anyCollisions)
     BtnGenSheet.Enabled = anyIncls
     
 End Sub
@@ -118,8 +121,8 @@ Private Sub setExclCtrls()
 
     LBxExcl.Enabled = anyExcls
     BtnOpenExcl.Enabled = anyExcls
-    BtnAppend.Enabled = anyExcls
-    BtnInsert.Enabled = anyExcls
+    BtnAppend.Enabled = anyExcls And (Not anyCollisions)
+    BtnInsert.Enabled = anyExcls And (Not anyCollisions)
     
 End Sub
 
@@ -418,6 +421,56 @@ Private Function hashName(nm As String) As Long
     Next iter
     
 End Function
+
+
+
+Private Sub proofParens()
+    ' Check for any suspect starts-with-paren files
+    '
+    ' Pops a messagebox if suspect things are found.
+    '
+    ' No specific action needs to be taken by the caller if any
+    ' suspect files ARE found, as the suspect files will not be
+    ' populated into the listboxes.
+    
+    Dim workStr As String
+    
+    ' Proof the files in the folder and report any problems
+    workStr = checkParenNames
+    
+    If workStr <> "" Then
+        MsgBox "The following files in the selected folder " _
+                & "appear to be improperly formatted budget items:" _
+                & NL & NL & workStr, vbOKOnly + vbExclamation, _
+                "Possible Malformed Filenames"
+    End If
+    
+End Sub
+
+Private Sub proofCollisions()
+    ' Check for any filename collisions in the selected folder.
+    '
+    ' Pop a msgbox if any found, and update the global status flag accordingly, either way
+    
+    Dim workStr As String
+    
+    ' Proof for collisions
+    workStr = checkNameCollisions
+    
+    If workStr <> "" Then
+        MsgBox "The following files in the selected folder " & _
+                "have name collisions; file manipulation will be disabled:" & _
+                NL & NL & workStr, _
+                vbOKOnly + vbCritical, _
+                "Name Collisions Detected"
+        anyCollisions = True
+    Else
+        anyCollisions = False
+    End If
+    
+End Sub
+
+
 
 
 
@@ -886,20 +939,15 @@ Private Sub BtnOpen_Click()
         Set fld = fs.GetFolder(.SelectedItems(1))
     End With
     
-    ' Refresh form
-    setCtrls
-    
     ' Populate the folder path textbox with the full path
     TBxFld = fld.Path
     
-    ' Proof the files in the folder and report any problems
-    workStr = checkParenNames
-    If workStr <> "" Then
-        MsgBox "The following files in the selected folder " _
-                & "appear to be improperly formatted budget items:" _
-                & NL & NL & workStr, vbOKOnly + vbExclamation, _
-                "Possible Malformed Filenames"
-    End If
+    ' Proof for parens and collisions
+    proofParens
+    proofCollisions
+    
+    ' Refresh form generally
+    setCtrls
     
 End Sub
 
@@ -932,8 +980,13 @@ Private Sub BtnOpenIncl_Click()
 End Sub
 
 Private Sub BtnReload_Click()
+    ' Proof parens and collisions
+    proofParens
+    proofCollisions
+    
     ' Refresh form
     setCtrls
+    
 End Sub
 
 Private Sub BtnRemove_Click()
@@ -990,6 +1043,9 @@ Private Sub UserForm_Initialize()
     
     ' Init Regexes
     compileRegexes
+    
+    ' Calculate the initial hash
+    hash = hashFilenames
     
     ' Populate the lists & refresh the form. For now, this should always just
     ' put EMPTY_LIST into both included & excluded
