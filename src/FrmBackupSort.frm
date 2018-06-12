@@ -287,7 +287,47 @@ Private Function checkParenNames() As String
     
 End Function
 
+Private Function hashFilenames() As Long
+    ' Hashing function for aggregated file names, dates, and sizes
+    ' Returns -1 if fld is not set
+    
+    Dim fl As File, iter As Long
+    Const NAMEMULT As Long = 17
+    Const SIZEMULT As Long = 37
+    
+    ' This is chosen based on the largest MULT, to avoid overflow
+    Const modVal As Long = 54054000#
+    
+    ' Dummy exit if folder not set
+    If fld Is Nothing Then
+        hashFilenames = -1
+        Exit Function
+    End If
+    
+    ' For each file...
+    For Each fl In fld.Files
+        ' Only hash if it's a valid included or excluded file
+        If rxFnameDetail.Test(fl.Name) Then
+            ' Hash the name
+            hashFilenames = (hashFilenames * NAMEMULT + hashName(fl.Name)) Mod modVal
+    
+            ' Hash the size
+            hashFilenames = (hashFilenames * SIZEMULT + fl.Size) Mod modVal
+        End If
+    Next fl
 
+End Function
+
+Private Function hashName(nm As String) As Long
+    ' Internal helper for hashing a filename
+    
+    Dim iter As Long
+    
+    For iter = 1 To Len(nm)
+        hashName = hashName + Asc(Mid(nm, iter, 1))
+    Next iter
+    
+End Function
 
 
 
