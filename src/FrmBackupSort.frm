@@ -104,7 +104,7 @@ Private Sub setInclCtrls()
     anyIncls = (LBxIncl.ListCount >= 1) And (LBxIncl.List(0, 0) <> NONE_FOUND) _
                 And (LBxIncl.List(0, 0) <> EMPTY_LIST)
     
-    LBxIncl.Enabled = anyIncls And (Not anyHashMismatch)
+    LBxIncl.Enabled = anyIncls
     BtnOpenIncl.Enabled = anyIncls And (Not anyHashMismatch)
     BtnMoveUp.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
     BtnMoveDown.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
@@ -122,7 +122,7 @@ Private Sub setExclCtrls()
     anyExcls = (LBxExcl.ListCount >= 1) And (LBxExcl.List(0, 0) <> NONE_FOUND) _
                 And (LBxExcl.List(0, 0) <> EMPTY_LIST)
 
-    LBxExcl.Enabled = anyExcls And (Not anyHashMismatch)
+    LBxExcl.Enabled = anyExcls
     BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch)
     BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
     BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
@@ -173,15 +173,13 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     
     ' Iterate through the files in the folder and sort to
     ' include/exclude lists as relevant.
-    ' Ignores any files with names not matching rxFNIdxValid
+    ' Ignores any files with names not matching the rigorous format
     For Each fl In fld.Files
-        If rxFNIdxValid.Test(fl.Name) Then
-            Set mch = rxFNIdxValid.Execute(fl.Name)(0)
-            If LCase(mch.SubMatches(1)) = "x" Then
-                LBxExcl.AddItem fl.Name
-            Else
-                LBxIncl.AddItem fl.Name
-            End If
+        If rxInclFnameDetail.Test(fl.Name) Then
+            LBxIncl.AddItem fl.Name
+        End If
+        If rxExclFnameDetail.Test(fl.Name) Then
+            LBxExcl.AddItem fl.Name
         End If
     Next fl
     
@@ -383,19 +381,22 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
     
 End Function
 
-Private Sub doHashCheck()
+Private Function doHashCheck() As Boolean
     ' Perform hash check and confirm whether it matches
     ' the global stored value. Set global flag accordingly
     
     ' If hash doesn't match, alert to need to reload
     anyHashMismatch = (hash <> hashFilenames)
+    doHashCheck = Not anyHashMismatch
     
     If anyHashMismatch Then
-        MsgBox "Folder contents have changed. Reload to proceed.", _
+        MsgBox "Folder contents have changed. Reload form to continue.", _
                 vbOKOnly + vbExclamation, "Folder Contents Changed"
     End If
     
-End Sub
+    setCtrls
+    
+End Function
 
 Private Function hashFilenames() As Long
     ' Hashing function for aggregated file names, dates, and sizes
@@ -508,6 +509,9 @@ Private Sub BtnAppend_Click()
     ' No Excluded list item is selected; do nothing
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Retrieve the filename and assign to File object;
     ' ASSUMES ALREADY VETTED AGAINST rxFNIdxValid
     Set mch = rxFNIdxValid.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
@@ -521,6 +525,10 @@ Private Sub BtnAppend_Click()
         ' Assign the index for the end of the 'included' list
         fl.Name = "(" & Format(LBxIncl.ListCount + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     End If
+    
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
     
     ' Refresh form
     setCtrls
@@ -560,6 +568,9 @@ Private Sub BtnGenSheet_Click()
     
     ' Drop if folder is not selected
     If fld Is Nothing Then Exit Sub
+    
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
     
     ' Scan the work folder for properly configured filenames
     counts = Array(0, 0, 0, 0, 0)
@@ -788,6 +799,9 @@ Private Sub BtnInsert_Click()
     
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Just append if nothing selected, or if <none found> is selected
     If LBxIncl.ListIndex < 0 Or LBxIncl.Value = NONE_FOUND Then
         BtnAppend_Click
@@ -809,6 +823,10 @@ Private Sub BtnInsert_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
+    
     ' Refresh form
     setCtrls
     
@@ -829,6 +847,9 @@ Private Sub BtnMoveDown_Click()
     ' Can't move the last item down
     If LBxIncl.ListIndex > LBxIncl.ListCount - 2 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Do the switch
     ' Store the index for later reference
     val = LBxIncl.ListIndex
@@ -848,6 +869,10 @@ Private Sub BtnMoveDown_Click()
     ' Select the 'moved down' item
     LBxIncl.ListIndex = val + 1
     
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
+    
     ' Refresh form
     setCtrls
     
@@ -866,6 +891,9 @@ Private Sub BtnMoveAfter_Click()
     
     ' Something must be selected
     If LBxIncl.ListIndex < 0 Then Exit Sub
+    
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
     
     ' Query for the desired destination
     workStr = ""
@@ -914,6 +942,9 @@ Private Sub BtnMoveUp_Click()
     ' Can't move the top item up...
     If LBxIncl.ListIndex < 1 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Do the switch
     ' Store the index for later reference
     val = LBxIncl.ListIndex
@@ -932,6 +963,10 @@ Private Sub BtnMoveUp_Click()
     
     ' Select the 'moved up' item
     LBxIncl.ListIndex = val - 1
+    
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
     
     ' Refresh form
     setCtrls
@@ -977,6 +1012,10 @@ Private Sub BtnOpenExcl_Click()
     
     Dim shl As New Shell, filePath As String
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
+    ' Open the file
     If Not fld Is Nothing Then
         If LBxExcl.ListIndex > -1 And LBxExcl.Value <> NONE_FOUND Then
             filePath = fs.BuildPath(fld.Path, LBxExcl.Value)
@@ -991,12 +1030,12 @@ Private Sub BtnOpenIncl_Click()
     
     Dim shl As New Shell, filePath As String
     
-    ' Hash check; exit and refresh the form if fails
-    doHashCheck
-    If anyHashMismatch Then
-        setCtrls
-        Exit Sub
-    End If
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+'    If anyHashMismatch Then
+'        setCtrls
+'        Exit Sub
+'    End If
     
     ' Open the file
     If Not fld Is Nothing Then
@@ -1036,6 +1075,9 @@ Private Sub BtnRemove_Click()
     ' Something has to be selected in the 'included' list
     If LBxIncl.ListIndex < 0 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Should be fine to remove now
     Set mch = rxFNIdxValid.Execute(LBxIncl.List(LBxIncl.ListIndex, 0))(0)
     
@@ -1044,6 +1086,12 @@ Private Sub BtnRemove_Click()
     
     ' Refresh form
     setCtrls
+    
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash.
+    ' This apparently has to come *after* the form refresh for this button,
+    ' otherwise the hash gets updated too quickly and is set to a stale value
+    hash = hashFilenames
     
 End Sub
 
