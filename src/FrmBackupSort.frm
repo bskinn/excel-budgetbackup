@@ -14,6 +14,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+
 ' # ------------------------------------------------------------------------------
 ' # Name:        FrmBackupSort.bas
 ' # Purpose:     Core form for "Budget Backup Manager" Excel VBA Add-In
@@ -49,15 +50,25 @@ Dim rxExclFnameDetail As New VBScript_RegExp_55.RegExp
 ' Detailed formatting match of 'included' or 'excluded' file
 Dim rxFnameDetail As New VBScript_RegExp_55.RegExp
 
-' Global storage of indices for popLists
-' PROBABLY SHOULD PULL THESE INSIDE THE FUNCTION
-Dim inclIdx As Long, exclIdx As Long
-Dim inclView As Long, exclView As Long
+' Global hash tracker variable
+Dim hash As Long
+
+' Global collisions-or-no tracker variable
+Dim anyCollisions As Boolean
+
+' Global 'matching hash?' tracker
+Dim anyHashMismatch As Boolean
+
 
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
 Const NUM_FORMAT As String = "00"
 Const CANCEL_RETURN As String = "!!CANCELED!!"
+Const UNINIT_RETURN As String = "!!FOLDER NOT INITIALIZED!!"""
+Dim NL As String    ' To contain Newline
+
+
+
 
 Private Sub setCtrls()
     
@@ -94,12 +105,12 @@ Private Sub setInclCtrls()
                 And (LBxIncl.List(0, 0) <> EMPTY_LIST)
     
     LBxIncl.Enabled = anyIncls
-    BtnOpenIncl.Enabled = anyIncls
-    BtnMoveUp.Enabled = anyIncls
-    BtnMoveDown.Enabled = anyIncls
-    BtnMoveAfter.Enabled = anyIncls
-    BtnRemove.Enabled = anyIncls
-    BtnGenSheet.Enabled = anyIncls
+    BtnOpenIncl.Enabled = anyIncls And (Not anyHashMismatch)
+    BtnMoveUp.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnMoveDown.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnRemove.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnGenSheet.Enabled = anyIncls And (Not anyHashMismatch)
     
 End Sub
 
@@ -112,9 +123,9 @@ Private Sub setExclCtrls()
                 And (LBxExcl.List(0, 0) <> EMPTY_LIST)
 
     LBxExcl.Enabled = anyExcls
-    BtnOpenExcl.Enabled = anyExcls
-    BtnAppend.Enabled = anyExcls
-    BtnInsert.Enabled = anyExcls
+    BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch)
+    BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
     
 End Sub
 
@@ -129,6 +140,9 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     
     Dim ctrl As Control
     Dim mch As VBScript_RegExp_55.Match
+    
+    Static inclIdx As Long, exclIdx As Long
+    Static inclView As Long, exclView As Long
 
     ' Store current selection/view indices if this is an external call,
     ' for restore after list repopulation.
@@ -159,15 +173,13 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     
     ' Iterate through the files in the folder and sort to
     ' include/exclude lists as relevant.
-    ' Ignores any files with names not matching rxFNIdxValid
+    ' Ignores any files with names not matching the rigorous format
     For Each fl In fld.Files
-        If rxFNIdxValid.Test(fl.Name) Then
-            Set mch = rxFNIdxValid.Execute(fl.Name)(0)
-            If LCase(mch.SubMatches(1)) = "x" Then
-                LBxExcl.AddItem fl.Name
-            Else
-                LBxIncl.AddItem fl.Name
-            End If
+        If rxInclFnameDetail.Test(fl.Name) Then
+            LBxIncl.AddItem fl.Name
+        End If
+        If rxExclFnameDetail.Test(fl.Name) Then
+            LBxExcl.AddItem fl.Name
         End If
     Next fl
     
@@ -196,6 +208,11 @@ Final_Exit:
     LBxIncl.TopIndex = inclView
 
 End Sub
+
+
+
+
+
 
 Private Sub padNums()
     ' Scan the files in the working folder and reformat any
@@ -243,6 +260,238 @@ Private Function packNums() As Boolean
     
 End Function
 
+Private Function checkParenNames() As String
+    ' Check if all filenames starting with a paren are valid,
+    ' whether included or excluded
+    '
+    ' Returns error return string if folder not set
+    '
+    ' Returns newline-separated list of invalid files, if any found
+    '
+    ' Returns empty string if all is ok.
+    
+    Dim fl As File
+    
+    checkParenNames = ""
+    
+    ' fld must be defined
+    If fld Is Nothing Then
+        checkParenNames = UNINIT_RETURN
+        Exit Function
+    End If
+    
+    ' Check all the files
+    For Each fl In fld.Files
+        If Left(fl.Name, 1) = "(" Then
+            If Not rxFnameDetail.Test(fl.Name) Then
+                checkParenNames = checkParenNames & fl.Name & NL
+            End If
+        End If
+    Next fl
+    
+End Function
+
+Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As String
+    ' Check if any *VALID INCLUDED/EXCLUDED* filenames are
+    ' identical other than the "(...)" key
+    '
+    ' If onlyValid is True (default), then name collisions will only be checked
+    ' for files whose names are properly formatted for sheet generation
+    ' If False, then *ALL* files starting with '(##)' or '(x)' will be checked.
+    '
+    ' Returns error return string if folder not set
+    '
+    ' Returns newline-separated list of colliding files, if any found
+    '
+    ' Returns empty string if all is ok.
+    
+    Dim iter As Long, iter2 As Long
+    Dim fl As File, fl2 As File
+    Dim rxWork As RegExp
+    Dim nStr As String, nStr2 As String
+    Dim collStr As String, seenStr As String
+    Dim outStr As String
+    
+    Const sep As String = "|"
+    
+    outStr = ""
+    collStr = sep
+    seenStr = sep
+    
+    ' fld must be defined
+    If fld Is Nothing Then
+        checkNameCollisions = UNINIT_RETURN
+        Exit Function
+    End If
+    
+    ' Choose the relevant regex
+    If onlyValid Then
+        Set rxWork = rxFnameDetail
+    Else
+        Set rxWork = rxFNIdxValid
+    End If
+    
+    ' Crosscheck all the files
+    For Each fl In fld.Files
+        ' Only care here about collisions between valid-formatted files
+        If rxWork.Test(fl.Name) Then
+            ' Valid file; store everything past the key
+            nStr = rxFNIdxValid.Execute(fl.Name)(0).SubMatches(2)
+            
+            For Each fl2 In fld.Files
+                If rxWork.Test(fl2.Name) Then
+                    ' This one's good also; store its name for checking
+                    nStr2 = rxFNIdxValid.Execute(fl2.Name)(0).SubMatches(2)
+                    
+                    ' Ignore when they're the same file, or if the file's
+                    ' already been flagged as colliding xxxx, or if the file has
+                    ' already been seen as nStr
+                    If fl.Name <> fl2.Name And _
+                            InStr(seenStr, sep & fl2.Name & sep) < 1 Then
+                            
+                        ' If the names match, store for complaint!
+                        If nStr = nStr2 Then
+                            ' Store the first filename as colliding for output, if new
+                            If InStr(outStr, fl.Name & NL) < 1 Then
+                                outStr = outStr & fl.Name & NL
+                            End If
+                            
+                            ' Store the second filename as colliding for output, if new
+                            If InStr(outStr, fl2.Name & NL) < 1 Then
+                                outStr = outStr & fl2.Name & NL
+                            End If
+                            
+                            ' Store the non-key name portion as colliding, if new
+                            If InStr(collStr, sep & nStr & sep) < 1 Then
+                                collStr = collStr & nStr & sep
+                            End If
+                            
+                        End If
+                    End If
+                End If
+            Next fl2
+            
+            ' Store as seen, to speed up the looping
+            seenStr = seenStr & fl.Name & sep
+        End If
+    Next fl
+    
+    ' Transfer collection variable to function return value
+    checkNameCollisions = outStr
+    
+End Function
+
+Private Function doHashCheck() As Boolean
+    ' Perform hash check and confirm whether it matches
+    ' the global stored value. Set global flag accordingly
+    
+    ' If hash doesn't match, alert to need to reload
+    anyHashMismatch = (hash <> hashFilenames)
+    doHashCheck = Not anyHashMismatch
+    
+    If anyHashMismatch Then
+        MsgBox "Folder contents have changed. Reload form to continue.", _
+                vbOKOnly + vbExclamation, "Folder Contents Changed"
+    End If
+    
+    setCtrls
+    
+End Function
+
+Private Function hashFilenames() As Long
+    ' Hashing function for aggregated file names, dates, and sizes
+    ' Returns -1 if fld is not set
+    
+    Dim fl As File, iter As Long
+    Const NAMEMULT As Long = 17
+    Const SIZEMULT As Long = 37
+    
+    ' This is chosen based on the largest MULT, to avoid overflow
+    Const modVal As Long = 54054000#
+    
+    ' Dummy exit if folder not set
+    If fld Is Nothing Then
+        hashFilenames = -1
+        Exit Function
+    End If
+    
+    ' For each file...
+    For Each fl In fld.Files
+        ' Only hash if it's a valid included or excluded file
+        If rxFnameDetail.Test(fl.Name) Then
+            ' Hash the name
+            hashFilenames = (hashFilenames * NAMEMULT + hashName(fl.Name)) Mod modVal
+    
+            ' Hash the size
+            hashFilenames = (hashFilenames * SIZEMULT + fl.Size) Mod modVal
+        End If
+    Next fl
+
+End Function
+
+Private Function hashName(nm As String) As Long
+    ' Internal helper for hashing a filename
+    
+    Dim iter As Long
+    
+    For iter = 1 To Len(nm)
+        hashName = hashName + Asc(Mid(nm, iter, 1))
+    Next iter
+    
+End Function
+
+
+
+Private Sub proofParens()
+    ' Check for any suspect starts-with-paren files
+    '
+    ' Pops a messagebox if suspect things are found.
+    '
+    ' No specific action needs to be taken by the caller if any
+    ' suspect files ARE found, as the suspect files will not be
+    ' populated into the listboxes.
+    
+    Dim workStr As String
+    
+    ' Proof the files in the folder and report any problems
+    workStr = checkParenNames
+    
+    If workStr <> "" Then
+        MsgBox "The following files in the selected folder " _
+                & "appear to be improperly formatted budget items:" _
+                & NL & NL & workStr, vbOKOnly + vbExclamation, _
+                "Possible Malformed Filenames"
+    End If
+    
+End Sub
+
+Private Sub proofCollisions()
+    ' Check for any filename collisions in the selected folder.
+    '
+    ' Pop a msgbox if any found, and update the global status flag accordingly, either way
+    
+    Dim workStr As String
+    
+    ' Proof for collisions
+    workStr = checkNameCollisions
+    
+    If workStr <> "" Then
+        MsgBox "The following files in the selected folder " & _
+                "have name collisions; file manipulation will be disabled:" & _
+                NL & NL & workStr, _
+                vbOKOnly + vbCritical, _
+                "Name Collisions Detected"
+        anyCollisions = True
+    Else
+        anyCollisions = False
+    End If
+    
+End Sub
+
+
+
+
+
 Private Sub BtnAppend_Click()
     ' Append the selected item from the Exclude list
     ' to the end of the Include list
@@ -260,6 +509,9 @@ Private Sub BtnAppend_Click()
     ' No Excluded list item is selected; do nothing
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Retrieve the filename and assign to File object;
     ' ASSUMES ALREADY VETTED AGAINST rxFNIdxValid
     Set mch = rxFNIdxValid.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
@@ -273,6 +525,10 @@ Private Sub BtnAppend_Click()
         ' Assign the index for the end of the 'included' list
         fl.Name = "(" & Format(LBxIncl.ListCount + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     End If
+    
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
     
     ' Refresh form
     setCtrls
@@ -313,6 +569,9 @@ Private Sub BtnGenSheet_Click()
     ' Drop if folder is not selected
     If fld Is Nothing Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Scan the work folder for properly configured filenames
     counts = Array(0, 0, 0, 0, 0)
     inlaids = Array(0, 0, 0, 0, 0)
@@ -338,13 +597,6 @@ Private Sub BtnGenSheet_Click()
                 Case "T"
                     counts(idxT) = counts(idxT) + 1
                 End Select
-            Else
-                ' Notify of non-matching item, if not an 'excluded' item
-                If Not rxExclFnameDetail.Test(fl.Name) Then
-                    MsgBox "The following item is named in an unrecognized format " & _
-                            "and will be skipped:" & vbCrLf & vbCrLf & fl.Name, _
-                            vbOKOnly + vbExclamation, "Skipping item"
-                End If
             End If
         End If
     Next fl
@@ -547,6 +799,9 @@ Private Sub BtnInsert_Click()
     
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Just append if nothing selected, or if <none found> is selected
     If LBxIncl.ListIndex < 0 Or LBxIncl.Value = NONE_FOUND Then
         BtnAppend_Click
@@ -568,6 +823,10 @@ Private Sub BtnInsert_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
+    
     ' Refresh form
     setCtrls
     
@@ -588,6 +847,9 @@ Private Sub BtnMoveDown_Click()
     ' Can't move the last item down
     If LBxIncl.ListIndex > LBxIncl.ListCount - 2 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Do the switch
     ' Store the index for later reference
     val = LBxIncl.ListIndex
@@ -607,6 +869,10 @@ Private Sub BtnMoveDown_Click()
     ' Select the 'moved down' item
     LBxIncl.ListIndex = val + 1
     
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
+    
     ' Refresh form
     setCtrls
     
@@ -625,6 +891,9 @@ Private Sub BtnMoveAfter_Click()
     
     ' Something must be selected
     If LBxIncl.ListIndex < 0 Then Exit Sub
+    
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
     
     ' Query for the desired destination
     workStr = ""
@@ -673,6 +942,9 @@ Private Sub BtnMoveUp_Click()
     ' Can't move the top item up...
     If LBxIncl.ListIndex < 1 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Do the switch
     ' Store the index for later reference
     val = LBxIncl.ListIndex
@@ -692,6 +964,10 @@ Private Sub BtnMoveUp_Click()
     ' Select the 'moved up' item
     LBxIncl.ListIndex = val - 1
     
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash
+    hash = hashFilenames
+    
     ' Refresh form
     setCtrls
     
@@ -701,6 +977,7 @@ Private Sub BtnOpen_Click()
     ' Prompt for user selection of folder to use
 
     Dim fd As FileDialog
+    Dim workStr As String
     
     Set fd = Application.FileDialog(msoFileDialogFolderPicker)
     
@@ -714,11 +991,19 @@ Private Sub BtnOpen_Click()
         Set fld = fs.GetFolder(.SelectedItems(1))
     End With
     
-    ' Refresh form
-    setCtrls
-    
     ' Populate the folder path textbox with the full path
     TBxFld = fld.Path
+    
+    ' Proof for parens and collisions
+    proofParens
+    proofCollisions
+    
+    ' Update the hash and reset the hash-match flag
+    hash = hashFilenames
+    anyHashMismatch = False
+    
+    ' Refresh form generally
+    setCtrls
     
 End Sub
 
@@ -727,6 +1012,10 @@ Private Sub BtnOpenExcl_Click()
     
     Dim shl As New Shell, filePath As String
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
+    ' Open the file
     If Not fld Is Nothing Then
         If LBxExcl.ListIndex > -1 And LBxExcl.Value <> NONE_FOUND Then
             filePath = fs.BuildPath(fld.Path, LBxExcl.Value)
@@ -741,6 +1030,14 @@ Private Sub BtnOpenIncl_Click()
     
     Dim shl As New Shell, filePath As String
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+'    If anyHashMismatch Then
+'        setCtrls
+'        Exit Sub
+'    End If
+    
+    ' Open the file
     If Not fld Is Nothing Then
         If LBxIncl.ListIndex > -1 And LBxIncl.Value <> NONE_FOUND Then
             filePath = fs.BuildPath(fld.Path, LBxIncl.Value)
@@ -751,8 +1048,17 @@ Private Sub BtnOpenIncl_Click()
 End Sub
 
 Private Sub BtnReload_Click()
+    ' Proof parens and collisions
+    proofParens
+    proofCollisions
+    
+    ' Update the hash and reset the hash-match flag
+    hash = hashFilenames
+    anyHashMismatch = False
+    
     ' Refresh form
     setCtrls
+    
 End Sub
 
 Private Sub BtnRemove_Click()
@@ -769,6 +1075,9 @@ Private Sub BtnRemove_Click()
     ' Something has to be selected in the 'included' list
     If LBxIncl.ListIndex < 0 Then Exit Sub
     
+    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
     ' Should be fine to remove now
     Set mch = rxFNIdxValid.Execute(LBxIncl.List(LBxIncl.ListIndex, 0))(0)
     
@@ -777,6 +1086,12 @@ Private Sub BtnRemove_Click()
     
     ' Refresh form
     setCtrls
+    
+    ' Can only get here if there was no hash problem beforehand,
+    ' so just update the hash.
+    ' This apparently has to come *after* the form refresh for this button,
+    ' otherwise the hash gets updated too quickly and is set to a stale value
+    hash = hashFilenames
     
 End Sub
 
@@ -791,6 +1106,12 @@ Private Sub BtnShowFolder_Click()
     
 End Sub
 
+
+
+
+
+
+
 Private Sub UserForm_Initialize()
     ' Initialize userform globals &c.
     
@@ -799,10 +1120,13 @@ Private Sub UserForm_Initialize()
     
     Set fs = CreateObject("Scripting.FileSystemObject")
     Set wsf = Application.WorksheetFunction
-    'Set shAp = CreateObject("Shell.Application")
+    NL = Chr(10)
     
     ' Init Regexes
     compileRegexes
+    
+    ' Calculate the initial hash
+    hash = hashFilenames
     
     ' Populate the lists & refresh the form. For now, this should always just
     ' put EMPTY_LIST into both included & excluded
@@ -842,7 +1166,7 @@ Private Sub compileRegexes()
     End With
     
     ' Detailed matching of an included or excluded file, with submatches
-    With rxExclFnameDetail
+    With rxFnameDetail
         .Global = False
         .MultiLine = False
         .IgnoreCase = True
