@@ -51,13 +51,15 @@ Dim rxFnameDetail As New VBScript_RegExp_55.RegExp
 
 ' Global storage of indices for popLists
 ' PROBABLY SHOULD PULL THESE INSIDE THE FUNCTION
-Dim inclIdx As Long, exclIdx As Long
-Dim inclView As Long, exclView As Long
+'Dim inclIdx As Long, exclIdx As Long
+'Dim inclView As Long, exclView As Long
 
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
 Const NUM_FORMAT As String = "00"
 Const CANCEL_RETURN As String = "!!CANCELED!!"
+
+' #####  FORM MANIPULATION #####
 
 Private Sub setCtrls()
     
@@ -129,6 +131,9 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     
     Dim ctrl As Control
     Dim mch As VBScript_RegExp_55.Match
+    
+    Static inclIdx As Long, exclIdx As Long
+    Static inclView As Long, exclView As Long
 
     ' Store current selection/view indices if this is an external call,
     ' for restore after list repopulation.
@@ -197,6 +202,8 @@ Final_Exit:
 
 End Sub
 
+' #####  MANIPULATION OF FILES IN FOLDERS #####
+
 Private Sub padNums()
     ' Scan the files in the working folder and reformat any
     ' numerical values with zero-padding
@@ -242,6 +249,8 @@ Private Function packNums() As Boolean
     End If
     
 End Function
+
+' ##### CONTROL EVENTS #####
 
 Private Sub BtnAppend_Click()
     ' Append the selected item from the Exclude list
