@@ -58,8 +58,11 @@ Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
 Const NUM_FORMAT As String = "00"
 Const CANCEL_RETURN As String = "!!CANCELED!!"
+Const UNINIT_RETURN As String = "!!FOLDER NOT INITIALIZED!!"""
+Dim NL As String    ' To contain Newline
 
-' #####  FORM MANIPULATION #####
+
+
 
 Private Sub setCtrls()
     
@@ -202,7 +205,10 @@ Final_Exit:
 
 End Sub
 
-' #####  MANIPULATION OF FILES IN FOLDERS #####
+
+
+
+
 
 Private Sub padNums()
     ' Scan the files in the working folder and reformat any
@@ -250,7 +256,40 @@ Private Function packNums() As Boolean
     
 End Function
 
-' ##### CONTROL EVENTS #####
+Private Function checkParenNames() As String
+    ' Check if all filenames starting with a paren are valid,
+    ' whether included or excluded
+    '
+    ' Returns error return string if folder not set
+    '
+    ' Returns newline-separated list of invalid files, if any found
+    '
+    ' Returns empty string if all is ok.
+    
+    Dim fl As File
+    
+    checkParenNames = ""
+    
+    ' fld must be defined
+    If fld Is Nothing Then
+        checkParenNames = UNINIT_RETURN
+        Exit Function
+    End If
+    
+    ' Check all the files
+    For Each fl In fld.Files
+        If Left(fl.Name, 1) = "(" Then
+            If Not rxFnameDetail.Test(fl.Name) Then
+                checkParenNames = checkParenNames & fl.Name & NL
+            End If
+        End If
+    Next fl
+    
+End Function
+
+
+
+
 
 Private Sub BtnAppend_Click()
     ' Append the selected item from the Exclude list
@@ -347,13 +386,6 @@ Private Sub BtnGenSheet_Click()
                 Case "T"
                     counts(idxT) = counts(idxT) + 1
                 End Select
-            Else
-                ' Notify of non-matching item, if not an 'excluded' item
-                If Not rxExclFnameDetail.Test(fl.Name) Then
-                    MsgBox "The following item is named in an unrecognized format " & _
-                            "and will be skipped:" & vbCrLf & vbCrLf & fl.Name, _
-                            vbOKOnly + vbExclamation, "Skipping item"
-                End If
             End If
         End If
     Next fl
@@ -710,6 +742,7 @@ Private Sub BtnOpen_Click()
     ' Prompt for user selection of folder to use
 
     Dim fd As FileDialog
+    Dim workStr As String
     
     Set fd = Application.FileDialog(msoFileDialogFolderPicker)
     
@@ -728,6 +761,15 @@ Private Sub BtnOpen_Click()
     
     ' Populate the folder path textbox with the full path
     TBxFld = fld.Path
+    
+    ' Proof the files in the folder and report any problems
+    workStr = checkParenNames
+    If workStr <> "" Then
+        MsgBox "The following files in the selected folder " _
+                & "appear to be improperly formatted budget items:" _
+                & NL & NL & workStr, vbOKOnly + vbExclamation, _
+                "Possible Malformed Filenames"
+    End If
     
 End Sub
 
@@ -800,6 +842,12 @@ Private Sub BtnShowFolder_Click()
     
 End Sub
 
+
+
+
+
+
+
 Private Sub UserForm_Initialize()
     ' Initialize userform globals &c.
     
@@ -808,7 +856,7 @@ Private Sub UserForm_Initialize()
     
     Set fs = CreateObject("Scripting.FileSystemObject")
     Set wsf = Application.WorksheetFunction
-    'Set shAp = CreateObject("Shell.Application")
+    NL = Chr(10)
     
     ' Init Regexes
     compileRegexes
@@ -851,7 +899,7 @@ Private Sub compileRegexes()
     End With
     
     ' Detailed matching of an included or excluded file, with submatches
-    With rxExclFnameDetail
+    With rxFnameDetail
         .Global = False
         .MultiLine = False
         .IgnoreCase = True
