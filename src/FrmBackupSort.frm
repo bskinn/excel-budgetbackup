@@ -126,7 +126,9 @@ Private Sub setExclCtrls()
     LBxExcl.Enabled = anyExcls
     BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch)
     BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnAppendAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
     BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnInsertAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
     
 End Sub
 
@@ -139,7 +141,6 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     ' calls, in cases such as where packNums actually results
     ' in a change to the folder contents.
     
-    Dim ctrl As Control
     Dim mch As VBScript_RegExp_55.Match
     
     Static inclIdx As Long, exclIdx As Long
@@ -541,6 +542,31 @@ Private Sub BtnAppend_Click()
     
 End Sub
 
+Private Sub BtnAppendAll_Click()
+    ' Iteratively append all 'excluded' items at the current position
+    
+    ' Folder must be defined
+    If fld Is Nothing Then Exit Sub
+    
+    ' Excluded list has to have items
+    If LBxExcl.List(0, 0) = NONE_FOUND Then Exit Sub
+    
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
+    ' Append everything, allowing events to occur after each loop
+    ' Adding in FORWARD sequence because the Append dynamic causes
+    ' each new item to be included BELOW the last item inserted.
+    Do Until LBxExcl.List(0, 0) = NONE_FOUND
+        BtnAppend_Click
+        DoEvents
+    Loop
+    
+    ' Form refresh and hash updates are handled by BtnRemove,
+    ' so no need to do either here.
+End Sub
+
 Private Sub BtnClose_Click()
     ' Jettison the form entirely
     Unload FrmBackupSort
@@ -841,6 +867,43 @@ Private Sub BtnInsert_Click()
     
     ' Set the control states
     setCtrls
+    
+End Sub
+
+Private Sub BtnInsertAll_Click()
+    ' Iteratively insert all 'excluded' items at the current position
+    
+    ' Folder must be defined
+    If fld Is Nothing Then Exit Sub
+    
+    ' Excluded list has to have items
+    If LBxExcl.List(0, 0) = NONE_FOUND Then Exit Sub
+    
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
+    ' If nothing selected in LbxIncl, treat this as an append-all
+    ' command, since a single Insert is treated as an Append.
+    ' Otherwise, the items are appended in reverse order.
+    If LBxIncl.ListIndex < 0 Then
+        BtnAppendAll_Click
+        Exit Sub
+    Else
+        ' Insert everything, allowing events to occur after each loop
+        ' Adding in REVERSE sequence because the Insert dynamic causes
+        ' each new item to be included ABOVE the last item inserted.
+        ' Therefore, the reverse sequence results in the inserted objects
+        ' retaining the same ordering as in LBxExcl before the mass insert.
+        Do Until LBxExcl.List(0, 0) = NONE_FOUND
+            LBxExcl.ListIndex = LBxExcl.ListCount - 1
+            BtnInsert_Click
+            DoEvents
+        Loop
+    End If
+    
+    ' Form refresh and hash updates are handled by BtnRemove,
+    ' so no need to do either here.
     
 End Sub
 
