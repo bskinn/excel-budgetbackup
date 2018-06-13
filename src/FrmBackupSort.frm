@@ -73,7 +73,7 @@ Dim NL As String    ' To contain Newline
 Private Sub setCtrls()
     
     ' Update the listboxes
-    popLists
+'    popLists
     
     ' Set enabled/disabled settings
     setFldCtrls
@@ -528,11 +528,15 @@ Private Sub BtnAppend_Click()
         fl.Name = "(" & Format(LBxIncl.ListCount + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     End If
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -827,11 +831,15 @@ Private Sub BtnInsert_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -874,11 +882,15 @@ Private Sub BtnMoveDown_Click()
     ' Select the 'moved down' item
     LBxIncl.ListIndex = val + 1
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -924,10 +936,12 @@ Private Sub BtnMoveAfter_Click()
     If srcIdx < tgtIdx Then
         Do Until LBxIncl.ListIndex = tgtIdx
             BtnMoveDown_Click
+            DoEvents
         Loop
     ElseIf srcIdx > tgtIdx Then
         Do Until LBxIncl.ListIndex = tgtIdx + 1
             BtnMoveUp_Click
+            DoEvents
         Loop
     ' Do nothing if source and target indices are equal
     End If
@@ -971,11 +985,15 @@ Private Sub BtnMoveUp_Click()
     ' Select the 'moved up' item
     LBxIncl.ListIndex = val - 1
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -1005,11 +1023,15 @@ Private Sub BtnOpen_Click()
     proofParens
     proofCollisions
     
+    
+    ' Update the listboxes
+    popLists
+    
     ' Update the hash and reset the hash-match flag
     hash = hashFilenames
     anyHashMismatch = False
     
-    ' Refresh form generally
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -1057,11 +1079,15 @@ Private Sub BtnReload_Click()
     proofParens
     proofCollisions
     
+    
+    ' Update the listboxes
+    popLists
+    
     ' Update the hash and reset the hash-match flag
     hash = hashFilenames
     anyHashMismatch = False
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -1090,14 +1116,15 @@ Private Sub BtnRemove_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(x)" & mch.SubMatches(2)
     
-    ' Refresh form
-    setCtrls
+    ' Refresh listboxes
+    popLists
     
     ' Can only get here if there was no hash problem beforehand,
-    ' so just update the hash.
-    ' This apparently has to come *after* the form refresh for this button,
-    ' otherwise the hash gets updated too quickly and is set to a stale value
+    ' so just update the hash
     hash = hashFilenames
+    
+    ' Set the control states
+    setCtrls
     
 End Sub
 
