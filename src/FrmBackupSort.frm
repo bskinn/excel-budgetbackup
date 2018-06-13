@@ -1,7 +1,7 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} FrmBackupSort 
    Caption         =   "Sort Budget Items"
-   ClientHeight    =   8070
+   ClientHeight    =   8400
    ClientLeft      =   45
    ClientTop       =   375
    ClientWidth     =   7125
@@ -73,7 +73,7 @@ Dim NL As String    ' To contain Newline
 Private Sub setCtrls()
     
     ' Update the listboxes
-    popLists
+'    popLists
     
     ' Set enabled/disabled settings
     setFldCtrls
@@ -110,6 +110,7 @@ Private Sub setInclCtrls()
     BtnMoveDown.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
     BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
     BtnRemove.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnRemoveAll.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
     BtnGenSheet.Enabled = anyIncls And (Not anyHashMismatch)
     
 End Sub
@@ -125,7 +126,9 @@ Private Sub setExclCtrls()
     LBxExcl.Enabled = anyExcls
     BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch)
     BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnAppendAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
     BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnInsertAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
     
 End Sub
 
@@ -138,7 +141,6 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     ' calls, in cases such as where packNums actually results
     ' in a change to the folder contents.
     
-    Dim ctrl As Control
     Dim mch As VBScript_RegExp_55.Match
     
     Static inclIdx As Long, exclIdx As Long
@@ -509,7 +511,8 @@ Private Sub BtnAppend_Click()
     ' No Excluded list item is selected; do nothing
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Retrieve the filename and assign to File object;
@@ -526,13 +529,42 @@ Private Sub BtnAppend_Click()
         fl.Name = "(" & Format(LBxIncl.ListCount + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     End If
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
+End Sub
+
+Private Sub BtnAppendAll_Click()
+    ' Iteratively append all 'excluded' items at the current position
+    
+    ' Folder must be defined
+    If fld Is Nothing Then Exit Sub
+    
+    ' Excluded list has to have items
+    If LBxExcl.List(0, 0) = NONE_FOUND Then Exit Sub
+    
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
+    ' Append everything, allowing events to occur after each loop
+    ' Adding in FORWARD sequence because the Append dynamic causes
+    ' each new item to be included BELOW the last item inserted.
+    Do Until LBxExcl.List(0, 0) = NONE_FOUND
+        BtnAppend_Click
+        DoEvents
+    Loop
+    
+    ' Form refresh and hash updates are handled by BtnRemove,
+    ' so no need to do either here.
 End Sub
 
 Private Sub BtnClose_Click()
@@ -569,7 +601,8 @@ Private Sub BtnGenSheet_Click()
     ' Drop if folder is not selected
     If fld Is Nothing Then Exit Sub
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Scan the work folder for properly configured filenames
@@ -799,7 +832,8 @@ Private Sub BtnInsert_Click()
     
     If LBxExcl.ListIndex < 0 Then Exit Sub
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Just append if nothing selected, or if <none found> is selected
@@ -823,12 +857,53 @@ Private Sub BtnInsert_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
+    
+End Sub
+
+Private Sub BtnInsertAll_Click()
+    ' Iteratively insert all 'excluded' items at the current position
+    
+    ' Folder must be defined
+    If fld Is Nothing Then Exit Sub
+    
+    ' Excluded list has to have items
+    If LBxExcl.List(0, 0) = NONE_FOUND Then Exit Sub
+    
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
+    ' If nothing selected in LbxIncl, treat this as an append-all
+    ' command, since a single Insert is treated as an Append.
+    ' Otherwise, the items are appended in reverse order.
+    If LBxIncl.ListIndex < 0 Then
+        BtnAppendAll_Click
+        Exit Sub
+    Else
+        ' Insert everything, allowing events to occur after each loop
+        ' Adding in REVERSE sequence because the Insert dynamic causes
+        ' each new item to be included ABOVE the last item inserted.
+        ' Therefore, the reverse sequence results in the inserted objects
+        ' retaining the same ordering as in LBxExcl before the mass insert.
+        Do Until LBxExcl.List(0, 0) = NONE_FOUND
+            LBxExcl.ListIndex = LBxExcl.ListCount - 1
+            BtnInsert_Click
+            DoEvents
+        Loop
+    End If
+    
+    ' Form refresh and hash updates are handled by BtnRemove,
+    ' so no need to do either here.
     
 End Sub
 
@@ -847,7 +922,8 @@ Private Sub BtnMoveDown_Click()
     ' Can't move the last item down
     If LBxIncl.ListIndex > LBxIncl.ListCount - 2 Then Exit Sub
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Do the switch
@@ -869,11 +945,15 @@ Private Sub BtnMoveDown_Click()
     ' Select the 'moved down' item
     LBxIncl.ListIndex = val + 1
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -892,7 +972,8 @@ Private Sub BtnMoveAfter_Click()
     ' Something must be selected
     If LBxIncl.ListIndex < 0 Then Exit Sub
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Query for the desired destination
@@ -918,10 +999,12 @@ Private Sub BtnMoveAfter_Click()
     If srcIdx < tgtIdx Then
         Do Until LBxIncl.ListIndex = tgtIdx
             BtnMoveDown_Click
+            DoEvents
         Loop
     ElseIf srcIdx > tgtIdx Then
         Do Until LBxIncl.ListIndex = tgtIdx + 1
             BtnMoveUp_Click
+            DoEvents
         Loop
     ' Do nothing if source and target indices are equal
     End If
@@ -942,7 +1025,8 @@ Private Sub BtnMoveUp_Click()
     ' Can't move the top item up...
     If LBxIncl.ListIndex < 1 Then Exit Sub
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Do the switch
@@ -964,11 +1048,15 @@ Private Sub BtnMoveUp_Click()
     ' Select the 'moved up' item
     LBxIncl.ListIndex = val - 1
     
+    
+    ' Refresh listboxes
+    popLists
+    
     ' Can only get here if there was no hash problem beforehand,
     ' so just update the hash
     hash = hashFilenames
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -998,11 +1086,15 @@ Private Sub BtnOpen_Click()
     proofParens
     proofCollisions
     
+    
+    ' Update the listboxes
+    popLists
+    
     ' Update the hash and reset the hash-match flag
     hash = hashFilenames
     anyHashMismatch = False
     
-    ' Refresh form generally
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -1012,7 +1104,8 @@ Private Sub BtnOpenExcl_Click()
     
     Dim shl As New Shell, filePath As String
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Open the file
@@ -1030,12 +1123,9 @@ Private Sub BtnOpenIncl_Click()
     
     Dim shl As New Shell, filePath As String
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
-'    If anyHashMismatch Then
-'        setCtrls
-'        Exit Sub
-'    End If
     
     ' Open the file
     If Not fld Is Nothing Then
@@ -1052,11 +1142,15 @@ Private Sub BtnReload_Click()
     proofParens
     proofCollisions
     
+    
+    ' Update the listboxes
+    popLists
+    
     ' Update the hash and reset the hash-match flag
     hash = hashFilenames
     anyHashMismatch = False
     
-    ' Refresh form
+    ' Set the control states
     setCtrls
     
 End Sub
@@ -1075,7 +1169,8 @@ Private Sub BtnRemove_Click()
     ' Something has to be selected in the 'included' list
     If LBxIncl.ListIndex < 0 Then Exit Sub
     
-    ' Hash check; will notify and refresh the form if fails; exit sub if it fails
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
     ' Should be fine to remove now
@@ -1084,14 +1179,40 @@ Private Sub BtnRemove_Click()
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
     fl.Name = "(x)" & mch.SubMatches(2)
     
-    ' Refresh form
-    setCtrls
+    ' Refresh listboxes
+    popLists
     
     ' Can only get here if there was no hash problem beforehand,
-    ' so just update the hash.
-    ' This apparently has to come *after* the form refresh for this button,
-    ' otherwise the hash gets updated too quickly and is set to a stale value
+    ' so just update the hash
     hash = hashFilenames
+    
+    ' Set the control states
+    setCtrls
+    
+End Sub
+
+Private Sub BtnRemoveAll_Click()
+    ' Iteratively remove all 'included' items
+    
+    ' Folder must be defined
+    If fld Is Nothing Then Exit Sub
+    
+    ' Included list has to have items
+    If LBxIncl.List(0, 0) = NONE_FOUND Then Exit Sub
+    
+    ' Hash check; will notify of need to refresh the form if fails
+    ' Need to exit sub if it fails
+    If Not doHashCheck Then Exit Sub
+    
+    ' Remove everything, allowing events to occur after each loop
+    Do Until LBxIncl.List(0, 0) = NONE_FOUND
+        LBxIncl.ListIndex = 0
+        BtnRemove_Click
+        DoEvents
+    Loop
+    
+    ' Form refresh and hash updates are handled by BtnRemove,
+    ' so no need to do either here.
     
 End Sub
 
