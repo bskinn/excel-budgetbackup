@@ -65,6 +65,9 @@ Const EMPTY_LIST As String = "<empty>"
 Const NUM_FORMAT As String = "00"
 Const CANCEL_RETURN As String = "!!CANCELED!!"
 Const UNINIT_RETURN As String = "!!FOLDER NOT INITIALIZED!!"""
+Const DEF_PADWIDTH As Long = 2
+Const CDP_PADWIDTH As String = "PadWidth"
+
 Dim NL As String    ' To contain Newline
 
 
@@ -142,6 +145,8 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     ' in a change to the folder contents.
     
     Dim mch As VBScript_RegExp_55.Match
+    Dim inclFileCount As Long
+    Dim calcMinPadWidth As Long
     
     Static inclIdx As Long, exclIdx As Long
     Static inclView As Long, exclView As Long
@@ -168,6 +173,20 @@ Private Sub popLists(Optional internalCall As Boolean = False)
         ' ... and by definition this can't be an internal call,
         ' so *do* go to the final exit code.
         GoTo Final_Exit
+    End If
+    
+    ' Count all the included files and update the padding setting
+    ' if it's too small
+    inclFileCount = 0
+    For Each fl In fld.Files
+        If rxInclFnameDetail.Test(fl.Name) Then
+            inclFileCount = inclFileCount + 1
+        End If
+    Next fl
+    
+    calcMinPadWidth = CLng(wsf.Floor(wsf.Log10(wsf.Max(1, inclFileCount)), 1)) + 1
+    If CLng(LblPadWidth.Caption) < calcMinPadWidth Then
+        setPadWidth calcMinPadWidth
     End If
     
     ' Pad all sequence numbers in filenames
@@ -223,16 +242,37 @@ Private Sub padNums()
     ' For now, only pads single-digit numbers.
     
     Dim mch As VBScript_RegExp_55.Match
+    Dim padWidth As Long
+    Dim idxWidth As Long
+    Dim oldID As String
+    Dim newID As String
+    
+    padWidth = CLng(getCustDocProp(CDP_PADWIDTH))
     
     For Each fl In fld.Files
-        If rxFNIdxValid.Test(fl.Name) Then
+        ' Only work with 'included' files
+        If rxInclFnameDetail.Test(fl.Name) Then
+            ' But store the match from the generic template matcher
             Set mch = rxFNIdxValid.Execute(fl.Name)(0)
             ' I think .SubMatches(0) is the inner item that has the '+' applied to it,
             '  while .SM(1)is the full numerical match.  .SM(2) is the remainder of the
             '  filename.
-            If LCase(mch.SubMatches(1)) <> "x" And Len(mch.SubMatches(1)) = 1 Then
-                fl.Name = "(0" & mch.SubMatches(1) & ")" & mch.SubMatches(2)
+            
+            ' Store old and calc new IDs
+            oldID = mch.SubMatches(1)
+            newID = Format(mch.SubMatches(1), String(padWidth, "0"))
+            
+            ' Only rename if they're different
+            If oldID <> newID Then
+                fl.Name = "(" & newID & ")" & mch.SubMatches(2)
             End If
+            
+'            ' Store the width of the index for later use
+'            idxWidth = CLng(wsf.Floor(wsf.Log10(CLng(mch.SubMatches(1))), 1)) + 1
+'
+'            If idxWidth < padWidth Then
+'                fl.name = "(" & Format(mch.SubMatches(1), String(padWidth, "0")) & ")" & mch.SubMatches(2)
+'            End If
         End If
     Next fl
 End Sub
@@ -244,6 +284,9 @@ Private Function packNums() As Boolean
     
     Dim workStr As String, iter As Long
     Dim mch As VBScript_RegExp_55.Match
+    Dim padFmt As String
+    
+    padFmt = String(CLng(getCustDocProp(CDP_PADWIDTH).Value), "0")
     
     packNums = False
     
@@ -254,7 +297,7 @@ Private Function packNums() As Boolean
                 If Not CLng(mch.SubMatches(1)) - 1 = iter Then
                     packNums = True
                     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
-                    fl.Name = "(" & Format(iter + 1, "00") & ")" & mch.SubMatches(2)
+                    fl.Name = "(" & Format(iter + 1, padFmt) & ")" & mch.SubMatches(2)
                 End If
             Next iter
         End If
@@ -490,6 +533,29 @@ Private Sub proofCollisions()
     
 End Sub
 
+Private Function minPadWidth() As Long
+    ' Helper function to evaluate the minimum allowed
+    ' pad width based on the number of items in the
+    ' 'included' list
+    
+    minPadWidth = CLng(wsf.Floor(wsf.Log10(wsf.Max(1, LBxIncl.ListCount)), 1)) + 1
+    
+End Function
+
+Private Sub setPadWidth(width As Long)
+    ' Helper to set the pad width, set the docprop,
+    ' save the addin workbook
+    With LblPadWidth
+        .Caption = width
+        setCustDocProp CDP_PADWIDTH, CStr(.Caption)
+    End With
+    
+    ThisWorkbook.Save
+    
+End Sub
+
+
+
 
 
 
@@ -554,6 +620,9 @@ Private Sub BtnAppendAll_Click()
     ' Hash check; will notify of need to refresh the form if fails
     ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
+    
+    ' Must ensure something is selected in Excl
+    LBxExcl.ListIndex = CLng(wsf.Max(0, LBxExcl.ListIndex))
     
     ' Append everything, allowing events to occur after each loop
     ' Adding in FORWARD sequence because the Append dynamic causes
@@ -883,6 +952,9 @@ Private Sub BtnInsertAll_Click()
     ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
+    ' Must ensure something is selected in Excl
+    LBxExcl.ListIndex = CLng(wsf.Max(0, LBxExcl.ListIndex))
+    
     ' If nothing selected in LbxIncl, treat this as an append-all
     ' command, since a single Insert is treated as an Append.
     ' Otherwise, the items are appended in reverse order.
@@ -1204,6 +1276,9 @@ Private Sub BtnRemoveAll_Click()
     ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
+    ' Must ensure something is selected in Incl
+    LBxIncl.ListIndex = CLng(wsf.Max(0, LBxIncl.ListIndex))
+    
     ' Remove everything, allowing events to occur after each loop
     Do Until LBxIncl.List(0, 0) = NONE_FOUND
         LBxIncl.ListIndex = 0
@@ -1227,6 +1302,83 @@ Private Sub BtnShowFolder_Click()
     
 End Sub
 
+Private Sub SpBtnPadWidth_SpinDown()
+    ' Adjust the pad width label down; min 1
+    
+    Dim fl As File
+    Dim newPadWidth As Long
+    
+    ' Only worry about folder contents if folder selected
+    If Not fld Is Nothing Then
+        ' Hash check; will notify of need to refresh the form if fails
+        ' Need to exit sub if it fails
+        If Not doHashCheck Then Exit Sub
+    End If
+    
+    ' Decrement the label whether the folder is bound or not,
+    ' and store to the doc prop
+    newPadWidth = wsf.Max(minPadWidth, LblPadWidth.Caption - 1)
+    
+    If newPadWidth <> CLng(LblPadWidth.Caption) Then
+        setPadWidth newPadWidth
+    End If
+    
+    ' Only rename files if a folder is selected
+    If Not fld Is Nothing Then
+        ' The list repopulation method should take care of updating
+        ' all the filenames with the new pad width
+        popLists
+        
+        ' Can only get here if there was no hash problem beforehand,
+        ' so just update the hash
+        hash = hashFilenames
+        
+        ' Set the control states
+        setCtrls
+    End If
+    
+End Sub
+
+Private Sub SpBtnPadWidth_SpinUp()
+    
+    Dim fl As File
+    Dim newPadWidth As Long
+    
+    ' Only worry about folder contents if folder selected
+    If Not fld Is Nothing Then
+        ' Hash check; will notify of need to refresh the form if fails
+        ' Need to exit sub if it fails
+        If Not doHashCheck Then Exit Sub
+    End If
+    
+    newPadWidth = wsf.Min(6, LblPadWidth.Caption + 1)
+    
+    ' Adjust the pad width label up
+    If newPadWidth <> CLng(LblPadWidth.Caption) Then
+        setPadWidth newPadWidth
+    End If
+    
+    ' Only rename files if a folder is selected
+    If Not fld Is Nothing Then
+        ' The list repopulation method should take care of updating
+        ' all the filenames with the new pad width
+        popLists
+        
+        ' Can only get here if there was no hash problem beforehand,
+        ' so just update the hash
+        hash = hashFilenames
+        
+        ' Set the control states
+        setCtrls
+    End If
+    
+End Sub
+
+
+
+
+
+
 
 
 
@@ -1237,7 +1389,7 @@ Private Sub UserForm_Initialize()
     ' Initialize userform globals &c.
     
     Dim workStr As String
-    Dim dp As DocumentProperty, resp As VbMsgBoxResult
+    Dim dp As DocumentProperty
     
     Set fs = CreateObject("Scripting.FileSystemObject")
     Set wsf = Application.WorksheetFunction
@@ -1248,6 +1400,17 @@ Private Sub UserForm_Initialize()
     
     ' Calculate the initial hash
     hash = hashFilenames
+    
+    ' Set the pad width, either from the default or stored custom docprop
+    Set dp = getCustDocProp(CDP_PADWIDTH)
+    If dp Is Nothing Then
+        ' Set the doc prop and populate the form label
+        setCustDocProp CDP_PADWIDTH, CStr(DEF_PADWIDTH)
+        LblPadWidth.Caption = CStr(DEF_PADWIDTH)
+    Else
+        ' Populate the form label frmo the doc prop
+        LblPadWidth.Caption = dp.Value
+    End If
     
     ' Populate the lists & refresh the form. For now, this should always just
     ' put EMPTY_LIST into both included & excluded
@@ -1295,3 +1458,59 @@ Private Sub compileRegexes()
     End With
     
 End Sub
+
+
+
+
+
+
+Private Function getCustDocProp(dpName As String) As DocumentProperty
+    ' Helper for retrieving custom document property.
+    ' Returns the DocumentProperty if it's present; otherwise, Nothing
+    
+    Dim errNum As Long, dp As DocumentProperty
+    
+    ' Attempt retrieve
+    On Error Resume Next
+    Set dp = ThisWorkbook.CustomDocumentProperties(dpName)
+    errNum = Err.Number
+    Err.Clear
+    On Error GoTo 0
+    
+    ' Return based on whether error occurred
+    If errNum > 0 Then
+        Set getCustDocProp = Nothing
+    Else
+        Set getCustDocProp = dp
+    End If
+    
+End Function
+
+Private Function setCustDocProp(dpName As String, strVal As String) As DocumentProperty
+    ' Set the indicated custom doc property.
+    ' Any existing property is deleted.
+    '
+    ' Returns the created docprop object
+    
+    ' Delete prop if present
+    On Error Resume Next
+    ThisWorkbook.CustomDocumentProperties(dpName).Delete
+    Err.Clear
+    On Error GoTo 0
+    
+    With ThisWorkbook
+        ' Add a new property
+        .CustomDocumentProperties.Add _
+                Name:=dpName, _
+                LinkToContent:=False, _
+                Type:=msoPropertyTypeString, _
+                Value:=strVal
+    
+        ' Must save to retain the change
+        .Save
+        
+        ' Set the return value
+        Set setCustDocProp = .CustomDocumentProperties(dpName)
+    End With
+    
+End Function
