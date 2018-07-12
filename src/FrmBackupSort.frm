@@ -80,11 +80,7 @@ Dim NL As String    ' To contain Newline
 
 
 Private Sub setCtrls()
-    
-    ' Update the listboxes
-'    popLists
-    
-    ' Set enabled/disabled settings
+    ' Helper function to call all individual control-setter functions
     setFldCtrls
     setInclCtrls
     setExclCtrls
@@ -92,7 +88,7 @@ Private Sub setCtrls()
 End Sub
 
 Private Sub setFldCtrls()
-    ' Helper function for setting the folder buttons
+    ' Helper function for setting the folder-related buttons
     
     Dim fldIsBound As Boolean
     
@@ -100,13 +96,15 @@ Private Sub setFldCtrls()
     If fldIsBound Then fldIsBound = fs.FolderExists(fld.Path)
     
     BtnOpen.Enabled = True  ' always enabled here
+    
     BtnReload.Enabled = fldIsBound
     BtnShowFolder.Enabled = fldIsBound
     
 End Sub
 
 Private Sub setInclCtrls()
-    ' Helper for setting the 'included' list buttons
+    ' Helper for setting the 'included' list buttons, and related
+    ' (includes the sheet generation button)
     
     Dim anyIncls As Boolean
     
@@ -114,12 +112,15 @@ Private Sub setInclCtrls()
                 And (LBxIncl.List(0, 0) <> EMPTY_LIST)
     
     LBxIncl.Enabled = anyIncls
+    
     BtnOpenIncl.Enabled = anyIncls And (Not anyHashMismatch) And (Not criticalLockedFile)
+    
     BtnMoveUp.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     BtnMoveDown.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     BtnRemove.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     BtnRemoveAll.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    
     BtnGenSheet.Enabled = anyIncls And (Not anyHashMismatch) And (Not criticalLockedFile)
     
 End Sub
@@ -134,12 +135,16 @@ Private Sub setExclCtrls()
 
     LBxExcl.Enabled = anyExcls
     BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch) And (Not criticalLockedFile)
+    
     BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     BtnAppendAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     BtnInsertAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     
 End Sub
+
+
+
 
 Private Sub popLists(Optional internalCall As Boolean = False)
     ' Clear and repopulate the included/excluded items LBxes
@@ -265,7 +270,7 @@ Private Sub padNums()
     ' Scan the files in the working folder and reformat any
     ' numerical values with zero-padding
     '
-    ' For now, only pads single-digit numbers.
+    ' Pads based on the current setting of LblPadWidth
     
     Dim mch As VBScript_RegExp_55.Match
     Dim padWidth As Long
@@ -314,21 +319,31 @@ Private Function packNums() As Boolean
     Dim mch As VBScript_RegExp_55.Match
     Dim padFmt As String
     
+    ' Helper format string for the padding
+    ' Assumes the custom doc prop is tightly matched to LbxPadWidth
     padFmt = String(CLng(getCustDocProp(CDP_PADWIDTH).Value), "0")
     
+    ' (Redundant) init of the return value
     packNums = False
     
+    ' Only bother packing if there's something in LBxIncl
     If LBxIncl.ListCount > 0 Then
+        ' ... and skip if no included items were found on last repop
         If LBxIncl.List(0, 0) <> NONE_FOUND Then
+            ' Explicit iteration used here to track the index value
+            ' that each file *should* hold.
             For iter = 0 To LBxIncl.ListCount - 1
+                ' This 'included file' regex *should* always match
                 Set mch = rxFNIdxValid.Execute(LBxIncl.List(iter, 0))(0)
+                
+                ' If the index doesn't match the iteration variable, fix it.
                 If Not CLng(mch.SubMatches(1)) - 1 = iter Then
                     ' Store the file for reference
                     Set fl = fs.GetFile(fs.BuildPath(fld.Path, LBxIncl.List(iter, 0)))
                     
                     ' Check for editability
                     If Not isFileEditable(fl) Then
-                        ' Critical problem
+                        ' Critical problem, notify and exit
                         notifyCriticalLockedFile fl.Name
                         criticalLockedFile = True
                         Exit Function
@@ -348,7 +363,7 @@ Private Function checkParenNames() As String
     ' Check if all filenames starting with a paren are valid,
     ' whether included or excluded
     '
-    ' Returns error return string if folder not set
+    ' Returns special error return string if folder not set
     '
     ' Returns newline-separated list of invalid files, if any found
     '
@@ -366,7 +381,9 @@ Private Function checkParenNames() As String
     
     ' Check all the files
     For Each fl In fld.Files
+        ' If it starts with a paren...
         If Left(fl.Name, 1) = "(" Then
+            ' ... then it needs to match either the 'include' or 'exclude' regex
             If Not rxFnameDetail.Test(fl.Name) Then
                 checkParenNames = checkParenNames & fl.Name & NL
             End If
@@ -399,7 +416,6 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
     Const sep As String = "|"
     
     outStr = ""
-    collStr = sep
     seenStr = sep
     
     ' fld must be defined
@@ -427,9 +443,8 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
                     ' This one's good also; store its name for checking
                     nStr2 = rxFNIdxValid.Execute(fl2.Name)(0).SubMatches(2)
                     
-                    ' Ignore when they're the same file, or if the file's
-                    ' already been flagged as colliding xxxx, or if the file has
-                    ' already been seen as nStr
+                    ' Examine only if they're not the same file, or if the file
+                    ' hasn't already been seen as nStr/fl (vs nStr2/fl2)
                     If fl.Name <> fl2.Name And _
                             InStr(seenStr, sep & fl2.Name & sep) < 1 Then
                             
@@ -443,11 +458,6 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
                             ' Store the second filename as colliding for output, if new
                             If InStr(outStr, fl2.Name & NL) < 1 Then
                                 outStr = outStr & fl2.Name & NL
-                            End If
-                            
-                            ' Store the non-key name portion as colliding, if new
-                            If InStr(collStr, sep & nStr & sep) < 1 Then
-                                collStr = collStr & nStr & sep
                             End If
                             
                         End If
@@ -483,7 +493,7 @@ Private Function doHashCheck() As Boolean
 End Function
 
 Private Function hashFilenames() As Long
-    ' Hashing function for aggregated file names, dates, and sizes
+    ' Hashing function for aggregated file names and sizes
     ' Returns -1 if fld is not set
     
     Dim fl As File, iter As Long
@@ -519,7 +529,7 @@ Private Function hashName(nm As String) As Long
     Dim iter As Long
     
     For iter = 1 To Len(nm)
-        hashName = hashName + Asc(Mid(nm, iter, 1))
+        hashName = hashName + iter * Asc(Mid(nm, iter, 1))
     Next iter
     
 End Function
@@ -527,7 +537,7 @@ End Function
 
 
 Private Sub proofParens()
-    ' Check for any suspect starts-with-paren files
+    ' Wrapper function - Check for any suspect starts-with-paren files
     '
     ' Pops a messagebox if suspect things are found.
     '
@@ -550,7 +560,7 @@ Private Sub proofParens()
 End Sub
 
 Private Sub proofCollisions()
-    ' Check for any filename collisions in the selected folder.
+    ' Wrapper function - Check for any filename collisions in the selected folder.
     '
     ' Pop a msgbox if any found, and update the global status flag accordingly, either way
     
@@ -588,8 +598,6 @@ Private Sub setPadWidth(width As Long)
         .Caption = width
         setCustDocProp CDP_PADWIDTH, CStr(.Caption)
     End With
-    
-    ThisWorkbook.Save
     
 End Sub
 
@@ -722,7 +730,13 @@ End Sub
 
 Private Sub BtnClose_Click()
     ' Jettison the form entirely
+    
+    ' Save the addin workbook, to store the custom doc props
+    ThisWorkbook.Save
+    
+    ' Then unload!
     Unload FrmBackupSort
+    
 End Sub
 
 Private Sub BtnGenSheet_Click()
@@ -1650,6 +1664,10 @@ Private Function setCustDocProp(dpName As String, strVal As String) As DocumentP
     ' Any existing property is deleted.
     '
     ' Returns the created docprop object
+    '
+    ' DOES NOT SAVE THE ADDIN WORKBOOK, so the change will not be retained
+    ' on Excel exit/reopen UNLESS ThisWorkbook.Save is called.
+    ' Here, this .Save is called on click of BtnClose.
     
     ' Delete prop if present
     On Error Resume Next
@@ -1663,12 +1681,23 @@ Private Function setCustDocProp(dpName As String, strVal As String) As DocumentP
                 LinkToContent:=False, _
                 Type:=msoPropertyTypeString, _
                 Value:=strVal
-    
-        ' Must save to retain the change
-        .Save
         
         ' Set the return value
         Set setCustDocProp = .CustomDocumentProperties(dpName)
     End With
     
 End Function
+
+
+Sub clearAddinCustDocProps()
+    ' Helper to clear the custom document properties defined on
+    ' the add-in .xlam itself, to facilitate preparation of
+    ' binaries for release.
+    
+    On Error Resume Next
+        With ThisWorkbook.CustomDocumentProperties
+            .Item(CDP_PADWIDTH).Delete
+        End With
+    Err.Clear: On Error GoTo 0
+
+End Sub
