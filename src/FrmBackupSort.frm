@@ -1560,6 +1560,7 @@ End Sub
 
 
 
+
 Private Sub UserForm_Initialize()
     ' Initialize userform globals &c.
     
@@ -1587,9 +1588,9 @@ Private Sub UserForm_Initialize()
         LblPadWidth.Caption = dp.Value
     End If
     
-    ' Populate the lists & refresh the form. For now, this should always just
-    ' put EMPTY_LIST into both included & excluded
-    ' Refresh form
+    ' For now, the form will not be loading with a folder bound.
+    ' So, just set the controls' states without attempting
+    ' to populate the listboxes.
     setCtrls
     
 End Sub
