@@ -59,6 +59,12 @@ Dim anyCollisions As Boolean
 ' Global 'matching hash?' tracker
 Dim anyHashMismatch As Boolean
 
+' Global 'last attempt found locked file' flag
+Dim lockedFileFound As Boolean
+
+' Global 'critical locked file' flag
+Dim criticalLockedFile As Boolean
+
 
 Const NONE_FOUND As String = "<none found>"
 Const EMPTY_LIST As String = "<empty>"
@@ -74,11 +80,7 @@ Dim NL As String    ' To contain Newline
 
 
 Private Sub setCtrls()
-    
-    ' Update the listboxes
-'    popLists
-    
-    ' Set enabled/disabled settings
+    ' Helper function to call all individual control-setter functions
     setFldCtrls
     setInclCtrls
     setExclCtrls
@@ -86,7 +88,7 @@ Private Sub setCtrls()
 End Sub
 
 Private Sub setFldCtrls()
-    ' Helper function for setting the folder buttons
+    ' Helper function for setting the folder-related buttons
     
     Dim fldIsBound As Boolean
     
@@ -94,13 +96,15 @@ Private Sub setFldCtrls()
     If fldIsBound Then fldIsBound = fs.FolderExists(fld.Path)
     
     BtnOpen.Enabled = True  ' always enabled here
+    
     BtnReload.Enabled = fldIsBound
     BtnShowFolder.Enabled = fldIsBound
     
 End Sub
 
 Private Sub setInclCtrls()
-    ' Helper for setting the 'included' list buttons
+    ' Helper for setting the 'included' list buttons, and related
+    ' (includes the sheet generation button)
     
     Dim anyIncls As Boolean
     
@@ -108,13 +112,16 @@ Private Sub setInclCtrls()
                 And (LBxIncl.List(0, 0) <> EMPTY_LIST)
     
     LBxIncl.Enabled = anyIncls
-    BtnOpenIncl.Enabled = anyIncls And (Not anyHashMismatch)
-    BtnMoveUp.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnMoveDown.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnRemove.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnRemoveAll.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnGenSheet.Enabled = anyIncls And (Not anyHashMismatch)
+    
+    BtnOpenIncl.Enabled = anyIncls And (Not anyHashMismatch) And (Not criticalLockedFile)
+    
+    BtnMoveUp.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    BtnMoveDown.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    BtnMoveAfter.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    BtnRemove.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    BtnRemoveAll.Enabled = anyIncls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    
+    BtnGenSheet.Enabled = anyIncls And (Not anyHashMismatch) And (Not criticalLockedFile)
     
 End Sub
 
@@ -127,13 +134,17 @@ Private Sub setExclCtrls()
                 And (LBxExcl.List(0, 0) <> EMPTY_LIST)
 
     LBxExcl.Enabled = anyExcls
-    BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch)
-    BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnAppendAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
-    BtnInsertAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch)
+    BtnOpenExcl.Enabled = anyExcls And (Not anyHashMismatch) And (Not criticalLockedFile)
+    
+    BtnAppend.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    BtnAppendAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    BtnInsert.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
+    BtnInsertAll.Enabled = anyExcls And (Not anyCollisions) And (Not anyHashMismatch) And (Not criticalLockedFile)
     
 End Sub
+
+
+
 
 Private Sub popLists(Optional internalCall As Boolean = False)
     ' Clear and repopulate the included/excluded items LBxes
@@ -147,6 +158,7 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     Dim mch As VBScript_RegExp_55.Match
     Dim inclFileCount As Long
     Dim calcMinPadWidth As Long
+    Dim didPack As Boolean
     
     Static inclIdx As Long, exclIdx As Long
     Static inclView As Long, exclView As Long
@@ -192,6 +204,12 @@ Private Sub popLists(Optional internalCall As Boolean = False)
     ' Pad all sequence numbers in filenames
     padNums
     
+    ' Cancel progress if critical file was locked
+    If criticalLockedFile Then
+        setCtrls
+        Exit Sub
+    End If
+    
     ' Iterate through the files in the folder and sort to
     ' include/exclude lists as relevant.
     ' Ignores any files with names not matching the rigorous format
@@ -204,9 +222,15 @@ Private Sub popLists(Optional internalCall As Boolean = False)
         End If
     Next fl
     
-    ' Attempt number packing; if it was done, then recall
-    ' popLists as internal
-    If packNums Then Call popLists(internalCall:=True)
+    ' Attempt number packing; if it was done, then re-invoke
+    ' popLists as internal. BUT, reset from controls and
+    ' drop from Sub if critical file was locked
+    didPack = packNums
+    If criticalLockedFile Then
+        setCtrls
+        Exit Sub
+    End If
+    If didPack Then Call popLists(internalCall:=True)
     
     ' Only run the finalizing code for the outermost, external
     ' call of the function
@@ -217,8 +241,15 @@ Private Sub popLists(Optional internalCall As Boolean = False)
 
 Final_Exit:
     ' Indicate empty include/excluded lists if detected
-    If LBxExcl.ListCount < 1 Then LBxExcl.AddItem NONE_FOUND
-    If LBxIncl.ListCount < 1 Then LBxIncl.AddItem NONE_FOUND
+    If LBxExcl.ListCount < 1 Then
+        LBxExcl.AddItem NONE_FOUND
+        LBxExcl.ListIndex = 0
+    End If
+    
+    If LBxIncl.ListCount < 1 Then
+        LBxIncl.AddItem NONE_FOUND
+        LBxIncl.ListIndex = 0
+    End If
     
     ' Restore selections and views
     ' The .Min calls avoid index overflows when the size
@@ -239,7 +270,7 @@ Private Sub padNums()
     ' Scan the files in the working folder and reformat any
     ' numerical values with zero-padding
     '
-    ' For now, only pads single-digit numbers.
+    ' Pads based on the current setting of LblPadWidth
     
     Dim mch As VBScript_RegExp_55.Match
     Dim padWidth As Long
@@ -264,15 +295,17 @@ Private Sub padNums()
             
             ' Only rename if they're different
             If oldID <> newID Then
+                ' But confirm editability first
+                If Not isFileEditable(fl) Then
+                    ' This is a critical problem
+                    notifyCriticalLockedFile fl.Name
+                    criticalLockedFile = True
+                    Exit Sub
+                End If
+                
+                ' Go ahead and rename
                 fl.Name = "(" & newID & ")" & mch.SubMatches(2)
             End If
-            
-'            ' Store the width of the index for later use
-'            idxWidth = CLng(wsf.Floor(wsf.Log10(CLng(mch.SubMatches(1))), 1)) + 1
-'
-'            If idxWidth < padWidth Then
-'                fl.name = "(" & Format(mch.SubMatches(1), String(padWidth, "0")) & ")" & mch.SubMatches(2)
-'            End If
         End If
     Next fl
 End Sub
@@ -282,21 +315,42 @@ Private Function packNums() As Boolean
     ' filename indexing so that there are no gaps, and no
     ' repeated indices.
     
-    Dim workStr As String, iter As Long
+    Dim workStr As String, iter As Long, fl As File
     Dim mch As VBScript_RegExp_55.Match
     Dim padFmt As String
     
+    ' Helper format string for the padding
+    ' Assumes the custom doc prop is tightly matched to LbxPadWidth
     padFmt = String(CLng(getCustDocProp(CDP_PADWIDTH).Value), "0")
     
+    ' (Redundant) init of the return value
     packNums = False
     
+    ' Only bother packing if there's something in LBxIncl
     If LBxIncl.ListCount > 0 Then
+        ' ... and skip if no included items were found on last repop
         If LBxIncl.List(0, 0) <> NONE_FOUND Then
+            ' Explicit iteration used here to track the index value
+            ' that each file *should* hold.
             For iter = 0 To LBxIncl.ListCount - 1
+                ' This 'included file' regex *should* always match
                 Set mch = rxFNIdxValid.Execute(LBxIncl.List(iter, 0))(0)
+                
+                ' If the index doesn't match the iteration variable, fix it.
                 If Not CLng(mch.SubMatches(1)) - 1 = iter Then
+                    ' Store the file for reference
+                    Set fl = fs.GetFile(fs.BuildPath(fld.Path, LBxIncl.List(iter, 0)))
+                    
+                    ' Check for editability
+                    If Not isFileEditable(fl) Then
+                        ' Critical problem, notify and exit
+                        notifyCriticalLockedFile fl.Name
+                        criticalLockedFile = True
+                        Exit Function
+                    End If
+                    
+                    ' Go ahead and rename, indicating that packing happened
                     packNums = True
-                    Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
                     fl.Name = "(" & Format(iter + 1, padFmt) & ")" & mch.SubMatches(2)
                 End If
             Next iter
@@ -309,7 +363,7 @@ Private Function checkParenNames() As String
     ' Check if all filenames starting with a paren are valid,
     ' whether included or excluded
     '
-    ' Returns error return string if folder not set
+    ' Returns special error return string if folder not set
     '
     ' Returns newline-separated list of invalid files, if any found
     '
@@ -327,7 +381,9 @@ Private Function checkParenNames() As String
     
     ' Check all the files
     For Each fl In fld.Files
+        ' If it starts with a paren...
         If Left(fl.Name, 1) = "(" Then
+            ' ... then it needs to match either the 'include' or 'exclude' regex
             If Not rxFnameDetail.Test(fl.Name) Then
                 checkParenNames = checkParenNames & fl.Name & NL
             End If
@@ -360,7 +416,6 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
     Const sep As String = "|"
     
     outStr = ""
-    collStr = sep
     seenStr = sep
     
     ' fld must be defined
@@ -388,9 +443,8 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
                     ' This one's good also; store its name for checking
                     nStr2 = rxFNIdxValid.Execute(fl2.Name)(0).SubMatches(2)
                     
-                    ' Ignore when they're the same file, or if the file's
-                    ' already been flagged as colliding xxxx, or if the file has
-                    ' already been seen as nStr
+                    ' Examine only if they're not the same file, or if the file
+                    ' hasn't already been seen as nStr/fl (vs nStr2/fl2)
                     If fl.Name <> fl2.Name And _
                             InStr(seenStr, sep & fl2.Name & sep) < 1 Then
                             
@@ -404,11 +458,6 @@ Private Function checkNameCollisions(Optional onlyValid As Boolean = True) As St
                             ' Store the second filename as colliding for output, if new
                             If InStr(outStr, fl2.Name & NL) < 1 Then
                                 outStr = outStr & fl2.Name & NL
-                            End If
-                            
-                            ' Store the non-key name portion as colliding, if new
-                            If InStr(collStr, sep & nStr & sep) < 1 Then
-                                collStr = collStr & nStr & sep
                             End If
                             
                         End If
@@ -444,7 +493,7 @@ Private Function doHashCheck() As Boolean
 End Function
 
 Private Function hashFilenames() As Long
-    ' Hashing function for aggregated file names, dates, and sizes
+    ' Hashing function for aggregated file names and sizes
     ' Returns -1 if fld is not set
     
     Dim fl As File, iter As Long
@@ -480,7 +529,7 @@ Private Function hashName(nm As String) As Long
     Dim iter As Long
     
     For iter = 1 To Len(nm)
-        hashName = hashName + Asc(Mid(nm, iter, 1))
+        hashName = hashName + iter * Asc(Mid(nm, iter, 1))
     Next iter
     
 End Function
@@ -488,7 +537,7 @@ End Function
 
 
 Private Sub proofParens()
-    ' Check for any suspect starts-with-paren files
+    ' Wrapper function - Check for any suspect starts-with-paren files
     '
     ' Pops a messagebox if suspect things are found.
     '
@@ -511,7 +560,7 @@ Private Sub proofParens()
 End Sub
 
 Private Sub proofCollisions()
-    ' Check for any filename collisions in the selected folder.
+    ' Wrapper function - Check for any filename collisions in the selected folder.
     '
     ' Pop a msgbox if any found, and update the global status flag accordingly, either way
     
@@ -550,14 +599,44 @@ Private Sub setPadWidth(width As Long)
         setCustDocProp CDP_PADWIDTH, CStr(.Caption)
     End With
     
-    ThisWorkbook.Save
+End Sub
+
+Private Function isFileEditable(fl As File) As Boolean
+    ' Helper function to check editable status of a file.
+    '
+    ' Basically checks to see if it can be opened for appending.
+    ' This should be nondestructive, while also giving information
+    ' on editability permissions
+    
+    Dim errNum As Long
+    
+    On Error Resume Next
+        fl.OpenAsTextStream(ForAppending).Close
+    errNum = Err.Number: Err.Clear: On Error GoTo 0
+    
+    isFileEditable = (errNum = 0)
+    
+End Function
+
+Private Sub notifyLockedFile(fname As String)
+    ' Helper method to raise an alert box when
+    ' a file is locked.
+    
+    MsgBox "The following file is locked by another application:" & NL & NL & _
+            fname & NL & NL & "Close the file and retry.", _
+            vbOKOnly + vbCritical, "File Locked"
     
 End Sub
 
-
-
-
-
+Private Sub notifyCriticalLockedFile(fname As String)
+    ' Helper method for locked file preventing further form
+    ' interaction
+    
+    MsgBox "The following file is locked by another application:" & NL & NL & _
+            fname & NL & NL & "The file must be closed to continue.", _
+            vbOKOnly + vbCritical, "File Locked"
+    
+End Sub
 
 
 Private Sub BtnAppend_Click()
@@ -581,10 +660,20 @@ Private Sub BtnAppend_Click()
     ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
+    ' Reset the locked file found flag
+    lockedFileFound = False
+    
     ' Retrieve the filename and assign to File object;
     ' ASSUMES ALREADY VETTED AGAINST rxFNIdxValid
     Set mch = rxFNIdxValid.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
+    
+    ' Check editable status
+    If Not isFileEditable(fl) Then
+        notifyLockedFile fl.Name
+        lockedFileFound = True
+        Exit Sub
+    End If
     
     ' Rename the file to an 'included' form
     If LBxIncl.List(0, 0) = NONE_FOUND Then
@@ -624,10 +713,13 @@ Private Sub BtnAppendAll_Click()
     ' Must ensure something is selected in Excl
     LBxExcl.ListIndex = CLng(wsf.Max(0, LBxExcl.ListIndex))
     
+    ' Reset locked file found flag
+    lockedFileFound = False
+    
     ' Append everything, allowing events to occur after each loop
     ' Adding in FORWARD sequence because the Append dynamic causes
     ' each new item to be included BELOW the last item inserted.
-    Do Until LBxExcl.List(0, 0) = NONE_FOUND
+    Do Until LBxExcl.List(0, 0) = NONE_FOUND Or lockedFileFound Or criticalLockedFile
         BtnAppend_Click
         DoEvents
     Loop
@@ -638,7 +730,13 @@ End Sub
 
 Private Sub BtnClose_Click()
     ' Jettison the form entirely
+    
+    ' Save the addin workbook, to store the custom doc props
+    ThisWorkbook.Save
+    
+    ' Then unload!
     Unload FrmBackupSort
+    
 End Sub
 
 Private Sub BtnGenSheet_Click()
@@ -906,28 +1004,52 @@ Private Sub BtnInsert_Click()
     If Not doHashCheck Then Exit Sub
     
     ' Just append if nothing selected, or if <none found> is selected
-    If LBxIncl.ListIndex < 0 Or LBxIncl.Value = NONE_FOUND Then
+    If LBxIncl.ListIndex < 0 Or LBxIncl.List(0, 0) = NONE_FOUND Then
         BtnAppend_Click
         Exit Sub
     End If
+    
+    ' Reset the locked-file-found flag
+    lockedFileFound = False
     
     ' Loop from the end of the 'included' list to the selection point, incrementing filenames
     val = LBxIncl.ListIndex
     For iter = LBxIncl.ListCount - 1 To LBxIncl.ListIndex Step -1
         Set mch = rxFNIdxValid.Execute(LBxIncl.List(iter, 0))(0)
         Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
-        ' Need to add trap for if file is locked, EVERY TIME a file is renamed.
-        '  Probably will want a utility function for this
+        
+        ' If file is locked, drop out; should trigger renumbering back to
+        ' previous list state
+        If Not isFileEditable(fl) Then
+            notifyLockedFile fl.Name
+            lockedFileFound = True
+            Exit For
+        End If
+        
+        ' Rename the file to shift it up, out of the way
         fl.Name = "(" & Format(iter + 2, NUM_FORMAT) & ")" & mch.SubMatches(2)
     Next iter
     
-    ' Number the item to be added appropriately
-    Set mch = rxFNIdxValid.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
-    Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
-    fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
+    ' Only bother with attempting to renumber the file to insert if no
+    ' locked files were found
+    If Not lockedFileFound Then
+        ' Number the item to be added appropriately.
+        ' Start by binding the file
+        Set mch = rxFNIdxValid.Execute(LBxExcl.List(LBxExcl.ListIndex, 0))(0)
+        Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
+        
+        ' Check if the file to be added is locked
+        If Not isFileEditable(fl) Then
+            notifyLockedFile fl.Name
+            lockedFileFound = True
+        Else
+            ' Do the rename
+            fl.Name = "(" & Format(val + 1, NUM_FORMAT) & ")" & mch.SubMatches(2)
+        End If
+    End If
     
-    
-    ' Refresh listboxes
+    ' ALWAYS refresh listboxes, even if locked file found. This will restore
+    ' the numbering to what it was before the Insert was attempted.
     popLists
     
     ' Can only get here if there was no hash problem beforehand,
@@ -955,6 +1077,9 @@ Private Sub BtnInsertAll_Click()
     ' Must ensure something is selected in Excl
     LBxExcl.ListIndex = CLng(wsf.Max(0, LBxExcl.ListIndex))
     
+    ' Reset locked file found flag
+    lockedFileFound = False
+    
     ' If nothing selected in LbxIncl, treat this as an append-all
     ' command, since a single Insert is treated as an Append.
     ' Otherwise, the items are appended in reverse order.
@@ -967,7 +1092,7 @@ Private Sub BtnInsertAll_Click()
         ' each new item to be included ABOVE the last item inserted.
         ' Therefore, the reverse sequence results in the inserted objects
         ' retaining the same ordering as in LBxExcl before the mass insert.
-        Do Until LBxExcl.List(0, 0) = NONE_FOUND
+        Do Until LBxExcl.List(0, 0) = NONE_FOUND Or lockedFileFound Or criticalLockedFile
             LBxExcl.ListIndex = LBxExcl.ListCount - 1
             BtnInsert_Click
             DoEvents
@@ -982,7 +1107,7 @@ End Sub
 Private Sub BtnMoveDown_Click()
     ' Move selected item down in the 'included' list
     
-    Dim val As Long
+    Dim val As Long, iter As Long, fl As File
     Dim mch As VBScript_RegExp_55.Match
     
     ' Must be something in the 'included' list
@@ -1002,8 +1127,19 @@ Private Sub BtnMoveDown_Click()
     ' Store the index for later reference
     val = LBxIncl.ListIndex
     
-    ' Fragile to identical filenames except for the number, but this should
-    '  only happen in stupid cases, not most real-life scenarios
+    ' Check that both files are editable; warn and cancel if not
+    For iter = val To val + 1
+        Set fl = fs.GetFile(fs.BuildPath(fld.Path, LBxIncl.List(iter, 0)))
+        If Not isFileEditable(fl) Then
+            notifyLockedFile fl.Name
+            lockedFileFound = True
+            Exit Sub
+        End If
+    Next iter
+    
+    ' No locked file found
+    lockedFileFound = False
+    
     ' Move the selected file down
     Set mch = rxFNIdxValid.Execute(LBxIncl.List(val, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
@@ -1065,16 +1201,19 @@ Private Sub BtnMoveAfter_Click()
     srcIdx = LBxIncl.ListIndex
     tgtIdx = wsf.Max(wsf.Min(CLng(workStr) - 1, LBxIncl.ListCount - 1), -1)
     
+    ' Reset the 'locked file found' flag since this is a new attempt
+    lockedFileFound = False
+    
     ' Perform the move. Relies on BtnMoveDown_Click and BtnMoveUp_Click
     ' keeping the item being moved as the selected item after the move
     ' is done!
     If srcIdx < tgtIdx Then
-        Do Until LBxIncl.ListIndex = tgtIdx
+        Do Until (LBxIncl.ListIndex = tgtIdx) Or lockedFileFound
             BtnMoveDown_Click
             DoEvents
         Loop
     ElseIf srcIdx > tgtIdx Then
-        Do Until LBxIncl.ListIndex = tgtIdx + 1
+        Do Until (LBxIncl.ListIndex = tgtIdx + 1) Or lockedFileFound
             BtnMoveUp_Click
             DoEvents
         Loop
@@ -1084,11 +1223,14 @@ Private Sub BtnMoveAfter_Click()
     ' No repop should be needed, since this is implemented using
     ' other methods that do the repop themselves.
     
+    ' Do reset the locked file found flag, though
+    lockedFileFound = False
+    
 End Sub
 
 Private Sub BtnMoveUp_Click()
     
-    Dim val As Long
+    Dim val As Long, iter As Long, fl As File
     Dim mch As VBScript_RegExp_55.Match
     
     ' Must be items in the list
@@ -1105,8 +1247,19 @@ Private Sub BtnMoveUp_Click()
     ' Store the index for later reference
     val = LBxIncl.ListIndex
     
-    ' Fragile to identical filenames except for the number, but this should
-    '  only happen in stupid cases, not most real-life scenarios
+    ' Check that both files are editable; warn and cancel if not
+    For iter = val To val - 1 Step -1
+        Set fl = fs.GetFile(fs.BuildPath(fld.Path, LBxIncl.List(iter, 0)))
+        If Not isFileEditable(fl) Then
+            notifyLockedFile fl.Name
+            lockedFileFound = True
+            Exit Sub
+        End If
+    Next iter
+    
+    ' No locked file found
+    lockedFileFound = False
+    
     ' Move the selected file up
     Set mch = rxFNIdxValid.Execute(LBxIncl.List(val, 0))(0)
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
@@ -1153,6 +1306,10 @@ Private Sub BtnOpen_Click()
     
     ' Populate the folder path textbox with the full path
     TBxFld = fld.Path
+    
+    ' Reset the critical locked file flag, presuming user
+    ' fixed the problem
+    criticalLockedFile = False
     
     ' Proof for parens and collisions
     proofParens
@@ -1210,6 +1367,10 @@ Private Sub BtnOpenIncl_Click()
 End Sub
 
 Private Sub BtnReload_Click()
+    ' Reset the critical locked file flag, presuming user
+    ' fixed the problem
+    criticalLockedFile = False
+    
     ' Proof parens and collisions
     proofParens
     proofCollisions
@@ -1245,10 +1406,17 @@ Private Sub BtnRemove_Click()
     ' Need to exit sub if it fails
     If Not doHashCheck Then Exit Sub
     
-    ' Should be fine to remove now
+    ' Should be fine to remove now, as long as it's editable
     Set mch = rxFNIdxValid.Execute(LBxIncl.List(LBxIncl.ListIndex, 0))(0)
-    
     Set fl = fs.GetFile(fs.BuildPath(fld.Path, mch.Value))
+    If Not isFileEditable(fl) Then
+        notifyLockedFile fl.Name
+        lockedFileFound = True
+        Exit Sub
+    End If
+    
+    ' Is editable; remove
+    lockedFileFound = False
     fl.Name = "(x)" & mch.SubMatches(2)
     
     ' Refresh listboxes
@@ -1279,12 +1447,19 @@ Private Sub BtnRemoveAll_Click()
     ' Must ensure something is selected in Incl
     LBxIncl.ListIndex = CLng(wsf.Max(0, LBxIncl.ListIndex))
     
+    ' Reset locked file found flag
+    lockedFileFound = False
+    
     ' Remove everything, allowing events to occur after each loop
-    Do Until LBxIncl.List(0, 0) = NONE_FOUND
-        LBxIncl.ListIndex = 0
+    Do Until LBxIncl.List(0, 0) = NONE_FOUND Or lockedFileFound Or criticalLockedFile
+        LBxIncl.ListIndex = LBxIncl.ListCount - 1
         BtnRemove_Click
         DoEvents
     Loop
+    
+    ' Reselect the first index, so that LBxIncl.Value is updated to match
+    ' the NONE_FOUND value added to .List by popLists
+    LBxIncl.ListIndex = 0
     
     ' Form refresh and hash updates are handled by BtnRemove,
     ' so no need to do either here.
@@ -1472,10 +1647,8 @@ Private Function getCustDocProp(dpName As String) As DocumentProperty
     
     ' Attempt retrieve
     On Error Resume Next
-    Set dp = ThisWorkbook.CustomDocumentProperties(dpName)
-    errNum = Err.Number
-    Err.Clear
-    On Error GoTo 0
+        Set dp = ThisWorkbook.CustomDocumentProperties(dpName)
+    errNum = Err.Number: Err.Clear: On Error GoTo 0
     
     ' Return based on whether error occurred
     If errNum > 0 Then
@@ -1491,12 +1664,15 @@ Private Function setCustDocProp(dpName As String, strVal As String) As DocumentP
     ' Any existing property is deleted.
     '
     ' Returns the created docprop object
+    '
+    ' DOES NOT SAVE THE ADDIN WORKBOOK, so the change will not be retained
+    ' on Excel exit/reopen UNLESS ThisWorkbook.Save is called.
+    ' Here, this .Save is called on click of BtnClose.
     
     ' Delete prop if present
     On Error Resume Next
-    ThisWorkbook.CustomDocumentProperties(dpName).Delete
-    Err.Clear
-    On Error GoTo 0
+        ThisWorkbook.CustomDocumentProperties(dpName).Delete
+    Err.Clear: On Error GoTo 0
     
     With ThisWorkbook
         ' Add a new property
@@ -1505,12 +1681,23 @@ Private Function setCustDocProp(dpName As String, strVal As String) As DocumentP
                 LinkToContent:=False, _
                 Type:=msoPropertyTypeString, _
                 Value:=strVal
-    
-        ' Must save to retain the change
-        .Save
         
         ' Set the return value
         Set setCustDocProp = .CustomDocumentProperties(dpName)
     End With
     
 End Function
+
+
+Sub clearAddinCustDocProps()
+    ' Helper to clear the custom document properties defined on
+    ' the add-in .xlam itself, to facilitate preparation of
+    ' binaries for release.
+    
+    On Error Resume Next
+        With ThisWorkbook.CustomDocumentProperties
+            .Item(CDP_PADWIDTH).Delete
+        End With
+    Err.Clear: On Error GoTo 0
+
+End Sub

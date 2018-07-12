@@ -21,3 +21,16 @@ Public Sub showBackupForm()
 Attribute showBackupForm.VB_ProcData.VB_Invoke_Func = "J\n14"
     FrmBackupSort.Show
 End Sub
+
+Public Sub clearAddinCustDocProps()
+    ' Helper to clear the add-in custom doc props
+    FrmBackupSort.clearAddinCustDocProps
+    ThisWorkbook.Save
+    Unload FrmBackupSort
+    
+End Sub
+
+Public Sub setAddinNameProp()
+    ' Helper to update the 'Name' built-in docprop
+    ThisWorkbook.BuiltinDocumentProperties(1) = "Budget Backup Manager v2.0"
+End Sub
