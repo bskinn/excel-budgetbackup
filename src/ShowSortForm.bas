@@ -7,7 +7,7 @@ Attribute VB_Name = "ShowSortForm"
 ' #                bskinn@alum.mit.edu
 ' #
 ' # Created:     13 Jan 2015
-' # Copyright:   (c) Brian Skinn 2017
+' # Copyright:   (c) Brian Skinn 2015-2018
 ' # License:     The MIT License; see "LICENSE.txt" for full license terms
 ' #                   and contributor agreement.
 ' #
@@ -22,10 +22,15 @@ Attribute showBackupForm.VB_ProcData.VB_Invoke_Func = "J\n14"
     FrmBackupSort.Show
 End Sub
 
-Public Sub doClearReaderLoc()
-    ' Helper function to clear the stored Reader location before distribution
-    '  of an .xlam addin.
-    ' Ultimately obsolete; will be removed once the Reader search functionality
-    '  is culled.
-    FrmBackupSort.clearReaderLocation
+Public Sub clearAddinCustDocProps()
+    ' Helper to clear the add-in custom doc props
+    FrmBackupSort.clearAddinCustDocProps
+    ThisWorkbook.Save
+    Unload FrmBackupSort
+    
+End Sub
+
+Public Sub setAddinNameProp()
+    ' Helper to update the 'Name' built-in docprop
+    ThisWorkbook.BuiltinDocumentProperties(1) = "Budget Backup Manager v2.0"
 End Sub

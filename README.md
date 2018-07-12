@@ -18,11 +18,11 @@ See the
 [project wiki](https://github.com/bskinn/excel-budgetbackup/wiki)
 *(pending)* for installation and usage instructions.
 
-Copyright (c) Brian Skinn 2017
+Copyright (c) Brian Skinn 2015-2018
 
 License: The MIT License  
 See [`LICENSE.txt`](https://github.com/bskinn/excel-budgetbackup/blob/master/LICENSE.txt)
-for full license terms and contributor agreement.
+for full license terms.
 
 *Budget Backup Manager is third-party software, and is neither affiliated with, nor authorized,
 sponsored, or approved by, Microsoft Corporation.*
